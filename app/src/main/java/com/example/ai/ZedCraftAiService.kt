@@ -48,9 +48,6 @@ class ZedCraftAiService {
         promptContent: Content
     ): RawModelResult {
         val mainConfig: GenerationConfig = generationConfig {
-            thinkingConfig = thinkingConfig {
-                thinkingLevel = ThinkingLevel.HIGH
-            }
             if (responseSchema != null) {
                 responseMimeType = "application/json"
                 this.responseSchema = responseSchema
