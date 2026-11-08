@@ -153,9 +153,11 @@ class ZedCraftAiService {
     ): RawModelResult {
         // Fast-path: If user provided Google AI Studio GEMINI_API_KEY, use it first to guarantee instant response!
         val promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text }
+        val bitmap = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.ImagePart>().firstOrNull()?.image
         val directResult = callDirectGoogleAiStudioApi(
             systemInstructionText = systemInstructionText,
             promptText = promptText,
+            bitmap = bitmap,
             responseMimeType = if (responseSchema != null) "application/json" else null
         )
         if (!directResult.isNullOrBlank()) {
@@ -258,9 +260,11 @@ class ZedCraftAiService {
     ): RawModelResult {
         // Fast-path: If user provided Google AI Studio GEMINI_API_KEY, use it first!
         val promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text }
+        val bitmap = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.ImagePart>().firstOrNull()?.image
         val directResult = callDirectGoogleAiStudioApi(
             systemInstructionText = systemInstructionText,
             promptText = promptText,
+            bitmap = bitmap,
             responseMimeType = "application/json"
         )
         if (!directResult.isNullOrBlank()) {

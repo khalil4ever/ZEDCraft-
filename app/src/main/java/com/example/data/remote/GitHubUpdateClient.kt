@@ -138,18 +138,25 @@ class GitHubUpdateClient(
             val latestReleaseUrl = "https://api.github.com/repos/$cleanedRepo/releases/latest"
             val latestReq = addGitHubHeaders(Request.Builder().url(latestReleaseUrl)).build()
 
+            var latestReleaseInfoWithoutApk: GitHubReleaseInfo? = null
+
             httpClient.newCall(latestReq).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful && body.isNotBlank()) {
                     val obj = JSONObject(body)
                     if (!obj.optBoolean("draft", false)) {
-                        return@runCatching parseReleaseObject(cleanedRepo, currentVersion, obj)
+                        val info = parseReleaseObject(cleanedRepo, currentVersion, obj)
+                        if (!info.apkDownloadUrl.isNullOrBlank()) {
+                            return@runCatching info
+                        } else {
+                            latestReleaseInfoWithoutApk = info
+                        }
                     }
                 }
             }
 
-            // 2. Fallback: /releases list (in case latest release is marked pre-release)
-            val releasesUrl = "https://api.github.com/repos/$cleanedRepo/releases?per_page=5"
+            // 2. Fallback: /releases list (find newest non-draft release that has an APK asset attached)
+            val releasesUrl = "https://api.github.com/repos/$cleanedRepo/releases?per_page=10"
             val releasesReq = addGitHubHeaders(Request.Builder().url(releasesUrl)).build()
 
             httpClient.newCall(releasesReq).execute().use { response ->
@@ -159,10 +166,18 @@ class GitHubUpdateClient(
                     for (i in 0 until arr.length()) {
                         val rel = arr.getJSONObject(i)
                         if (!rel.optBoolean("draft", false)) {
-                            return@runCatching parseReleaseObject(cleanedRepo, currentVersion, rel)
+                            val parsed = parseReleaseObject(cleanedRepo, currentVersion, rel)
+                            if (!parsed.apkDownloadUrl.isNullOrBlank()) {
+                                return@runCatching parsed
+                            }
                         }
                     }
                 }
+            }
+
+            // If we found a latest release without an APK asset, still return it rather than tags
+            if (latestReleaseInfoWithoutApk != null) {
+                return@runCatching latestReleaseInfoWithoutApk!!
             }
 
             // 3. Fallback: tags list
