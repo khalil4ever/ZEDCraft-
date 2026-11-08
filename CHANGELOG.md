@@ -1,5 +1,10 @@
 # ZEDCraft Changelog
 
+## [1.3.0] - 2026-11-08
+### Fixed & Improved
+- **ZD AI Model Performance**: Switched default chat model to `gemini-3.8-flash` for high-speed, direct responses without requiring a paid Firebase Blaze plan.
+- **In-App Auto-Update Notification**: Devices on v1.2.0 or lower will automatically prompt and install this new v1.3.0 update.
+
 ## [1.2.0] - 2026-11-08
 ### Added & Improved
 - **ZD AI Chat Resilience & App Check**: Initialized Firebase App Check (`DebugAppCheckProviderFactory` on debug builds with Logcat debug token printing; `PlayIntegrityAppCheckProviderFactory` on release builds), automatic single retry + `gemini-3.8-flash` fallback, and a friendly retry state (`"ZD is having trouble connecting. Please try again."`).
