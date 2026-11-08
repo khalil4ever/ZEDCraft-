@@ -755,6 +755,7 @@ fun CreditsScreen(
 
         // Check for Updates button
         item {
+            val context = LocalContext.current
             OutlinedButton(
                 onClick = { viewModel.checkForGitHubUpdates(isSilent = false) },
                 enabled = !uiState.isCheckingUpdate && !uiState.isDownloadingUpdate,
@@ -772,7 +773,7 @@ fun CreditsScreen(
                         color = ZedCyanPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Checking for updates...", color = ZedCyanPrimary)
+                    Text("Checking GitHub for updates...", color = ZedCyanPrimary)
                 } else {
                     Icon(
                         imageVector = Icons.Default.SystemUpdateAlt,

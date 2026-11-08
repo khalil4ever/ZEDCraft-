@@ -102,6 +102,21 @@ class GitHubUpdateClient(
         }
     }
 
+    private fun getGitHubToken(): String? {
+        val token = runCatching { BuildConfig.GITHUB_TOKEN.trim() }.getOrNull()
+        return if (!token.isNullOrBlank() && !token.startsWith("YOUR_") && token != "null") token else null
+    }
+
+    private fun addGitHubHeaders(builder: Request.Builder): Request.Builder {
+        builder.header("Accept", "application/vnd.github+json")
+        builder.header("User-Agent", "ZEDCraft-Android/${BuildConfig.VERSION_NAME}")
+        val token = getGitHubToken()
+        if (!token.isNullOrBlank()) {
+            builder.header("Authorization", "Bearer $token")
+        }
+        return builder
+    }
+
     /**
      * Checks `https://api.github.com/repos/khalil4ever/ZEDCraft-/releases/latest` first,
      * reading `tag_name`, `body`, and `.apk` asset `browser_download_url`.
@@ -121,11 +136,7 @@ class GitHubUpdateClient(
 
             // 1. Primary endpoint: /releases/latest
             val latestReleaseUrl = "https://api.github.com/repos/$cleanedRepo/releases/latest"
-            val latestReq = Request.Builder()
-                .url(latestReleaseUrl)
-                .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "ZEDCraft-Android/${BuildConfig.VERSION_NAME}")
-                .build()
+            val latestReq = addGitHubHeaders(Request.Builder().url(latestReleaseUrl)).build()
 
             httpClient.newCall(latestReq).execute().use { response ->
                 val body = response.body?.string().orEmpty()
@@ -139,11 +150,7 @@ class GitHubUpdateClient(
 
             // 2. Fallback: /releases list (in case latest release is marked pre-release)
             val releasesUrl = "https://api.github.com/repos/$cleanedRepo/releases?per_page=5"
-            val releasesReq = Request.Builder()
-                .url(releasesUrl)
-                .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "ZEDCraft-Android/${BuildConfig.VERSION_NAME}")
-                .build()
+            val releasesReq = addGitHubHeaders(Request.Builder().url(releasesUrl)).build()
 
             httpClient.newCall(releasesReq).execute().use { response ->
                 val body = response.body?.string().orEmpty()
@@ -158,13 +165,9 @@ class GitHubUpdateClient(
                 }
             }
 
-            // 3. If no releases published yet, check tags / commits quietly
+            // 3. Fallback: tags list
             val tagsUrl = "https://api.github.com/repos/$cleanedRepo/tags?per_page=5"
-            val tagsReq = Request.Builder()
-                .url(tagsUrl)
-                .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "ZEDCraft-Android/${BuildConfig.VERSION_NAME}")
-                .build()
+            val tagsReq = addGitHubHeaders(Request.Builder().url(tagsUrl)).build()
 
             var latestTagFromTags: String? = null
             httpClient.newCall(tagsReq).execute().use { response ->
@@ -219,13 +222,17 @@ class GitHubUpdateClient(
                 tempFile.delete()
             }
 
-            val req = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(apkUrl)
                 .header("Accept", "application/octet-stream, application/vnd.android.package-archive, */*")
                 .header("User-Agent", "ZEDCraft-Android/${BuildConfig.VERSION_NAME}")
-                .build()
 
-            httpClient.newCall(req).execute().use { response ->
+            val token = getGitHubToken()
+            if (!token.isNullOrBlank()) {
+                reqBuilder.header("Authorization", "Bearer $token")
+            }
+
+            httpClient.newCall(reqBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw IllegalStateException("Download failed (HTTP ${response.code}). Please try again.")
                 }

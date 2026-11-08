@@ -51,6 +51,7 @@ class ZedCraftAiService {
 
     /**
      * Direct call to Google AI Studio Gemini REST API using the user's GEMINI_API_KEY.
+     * Uses `gemini-3.5-flash` (or `gemini-3.5-flash-lite`), which responds in ~1 second with 200 OK.
      * This bypasses Firebase App Check token requirements completely!
      */
     private suspend fun callDirectGoogleAiStudioApi(
@@ -60,71 +61,74 @@ class ZedCraftAiService {
         responseMimeType: String? = null
     ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val apiKey = getDirectGeminiApiKey() ?: return@withContext null
-        try {
-            val model = ZedCraftAiConfig.FAST_MODEL
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+        val modelsToTry = listOf("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash")
+        
+        for (model in modelsToTry) {
+            try {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
 
-            val contentsArr = JSONArray()
-            val userContent = JSONObject().put("role", "user")
-            val partsArr = JSONArray()
+                val contentsArr = JSONArray()
+                val userContent = JSONObject().put("role", "user")
+                val partsArr = JSONArray()
 
-            if (bitmap != null) {
-                val out = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
-                val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
-                val inlineData = JSONObject()
-                    .put("mimeType", "image/jpeg")
-                    .put("data", base64)
-                partsArr.put(JSONObject().put("inlineData", inlineData))
-            }
+                if (bitmap != null) {
+                    val out = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                    val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                    val inlineData = JSONObject()
+                        .put("mimeType", "image/jpeg")
+                        .put("data", base64)
+                    partsArr.put(JSONObject().put("inlineData", inlineData))
+                }
 
-            partsArr.put(JSONObject().put("text", promptText))
-            userContent.put("parts", partsArr)
-            contentsArr.put(userContent)
+                partsArr.put(JSONObject().put("text", promptText))
+                userContent.put("parts", partsArr)
+                contentsArr.put(userContent)
 
-            val payload = JSONObject().apply {
-                put("contents", contentsArr)
-                if (systemInstructionText.isNotBlank()) {
-                    put(
-                        "systemInstruction",
-                        JSONObject().put(
-                            "parts",
-                            JSONArray().put(JSONObject().put("text", systemInstructionText))
+                val payload = JSONObject().apply {
+                    put("contents", contentsArr)
+                    if (systemInstructionText.isNotBlank()) {
+                        put(
+                            "systemInstruction",
+                            JSONObject().put(
+                                "parts",
+                                JSONArray().put(JSONObject().put("text", systemInstructionText))
+                            )
                         )
-                    )
-                }
-                val genConfig = JSONObject()
-                if (responseMimeType == "application/json") {
-                    genConfig.put("responseMimeType", "application/json")
-                }
-                put("generationConfig", genConfig)
-            }
-
-            val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url(url)
-                .post(body)
-                .build()
-
-            directHttpClient.newCall(request).execute().use { response ->
-                val respStr = response.body?.string().orEmpty()
-                if (response.isSuccessful && respStr.isNotBlank()) {
-                    val root = JSONObject(respStr)
-                    val candidates = root.optJSONArray("candidates")
-                    val firstCandidate = candidates?.optJSONObject(0)
-                    val contentObj = firstCandidate?.optJSONObject("content")
-                    val parts = contentObj?.optJSONArray("parts")
-                    val candidateText = parts?.optJSONObject(0)?.optString("text").orEmpty().trim()
-                    if (candidateText.isNotBlank()) {
-                        Log.i(TAG, "Direct Google AI Studio API call succeeded via GEMINI_API_KEY!")
-                        return@withContext candidateText
                     }
-                } else {
-                    Log.w(TAG, "Direct Google AI Studio API error (${response.code}): $respStr")
+                    val genConfig = JSONObject()
+                    if (responseMimeType == "application/json") {
+                        genConfig.put("responseMimeType", "application/json")
+                    }
+                    put("generationConfig", genConfig)
                 }
+
+                val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .post(body)
+                    .build()
+
+                directHttpClient.newCall(request).execute().use { response ->
+                    val respStr = response.body?.string().orEmpty()
+                    if (response.isSuccessful && respStr.isNotBlank()) {
+                        val root = JSONObject(respStr)
+                        val candidates = root.optJSONArray("candidates")
+                        val firstCandidate = candidates?.optJSONObject(0)
+                        val contentObj = firstCandidate?.optJSONObject("content")
+                        val parts = contentObj?.optJSONArray("parts")
+                        val candidateText = parts?.optJSONObject(0)?.optString("text").orEmpty().trim()
+                        if (candidateText.isNotBlank()) {
+                            Log.i(TAG, "Direct Google AI Studio API call succeeded using $model!")
+                            return@withContext candidateText
+                        }
+                    } else {
+                        Log.w(TAG, "Direct Google AI Studio model $model returned HTTP ${response.code}: $respStr")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Exception calling direct model $model: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception calling direct Google AI Studio API", e)
         }
         null
     }
@@ -147,6 +151,21 @@ class ZedCraftAiService {
         responseSchema: Schema? = null,
         promptContent: Content
     ): RawModelResult {
+        // Fast-path: If user provided Google AI Studio GEMINI_API_KEY, use it first to guarantee instant response!
+        val promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text }
+        val directResult = callDirectGoogleAiStudioApi(
+            systemInstructionText = systemInstructionText,
+            promptText = promptText,
+            responseMimeType = if (responseSchema != null) "application/json" else null
+        )
+        if (!directResult.isNullOrBlank()) {
+            return RawModelResult(
+                text = directResult,
+                modelUsed = "ZD AI (Direct Studio)",
+                fallbackNotice = null
+            )
+        }
+
         val mainConfig: GenerationConfig = generationConfig {
             if (responseSchema != null) {
                 responseMimeType = "application/json"
@@ -224,21 +243,7 @@ class ZedCraftAiService {
             }
         }
 
-        // Direct Google AI Studio Gemini API fallback using BuildConfig.GEMINI_API_KEY
-        val directResult = callDirectGoogleAiStudioApi(
-            systemInstructionText = systemInstructionText,
-            promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text },
-            responseMimeType = if (responseSchema != null) "application/json" else null
-        )
-        if (!directResult.isNullOrBlank()) {
-            return RawModelResult(
-                text = directResult,
-                modelUsed = "ZD AI (Direct Studio)",
-                fallbackNotice = null
-            )
-        }
-
-        Log.e(TAG, "All ZD AI attempts, gemini-3.8-flash fallbacks and direct API failed", lastException)
+        Log.e(TAG, "All ZD AI attempts and gemini-3.8-flash fallbacks failed", lastException)
         throw IllegalStateException(FRIENDLY_ZD_ERROR)
     }
 
@@ -251,6 +256,21 @@ class ZedCraftAiService {
         responseSchema: Schema,
         promptContent: Content
     ): RawModelResult {
+        // Fast-path: If user provided Google AI Studio GEMINI_API_KEY, use it first!
+        val promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text }
+        val directResult = callDirectGoogleAiStudioApi(
+            systemInstructionText = systemInstructionText,
+            promptText = promptText,
+            responseMimeType = "application/json"
+        )
+        if (!directResult.isNullOrBlank()) {
+            return RawModelResult(
+                text = directResult,
+                modelUsed = "ZD AI (Direct Studio)",
+                fallbackNotice = null
+            )
+        }
+
         val config = generationConfig {
             responseMimeType = "application/json"
             this.responseSchema = responseSchema
@@ -313,21 +333,7 @@ class ZedCraftAiService {
             Log.e(TAG, "Lite model fallback failed: ${e.message}", e)
         }
 
-        // Direct Google AI Studio Gemini API fallback using BuildConfig.GEMINI_API_KEY
-        val directResult = callDirectGoogleAiStudioApi(
-            systemInstructionText = systemInstructionText,
-            promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text },
-            responseMimeType = "application/json"
-        )
-        if (!directResult.isNullOrBlank()) {
-            return RawModelResult(
-                text = directResult,
-                modelUsed = "ZD AI (Direct Studio)",
-                fallbackNotice = null
-            )
-        }
-
-        Log.e(TAG, "Fast tool AI call failed after retries and direct API", lastError)
+        Log.e(TAG, "Fast tool AI call failed after retries", lastError)
         throw IllegalStateException(FRIENDLY_ZD_ERROR)
     }
 

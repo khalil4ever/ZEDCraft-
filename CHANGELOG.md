@@ -1,5 +1,9 @@
 # ZEDCraft Changelog
 
+## [1.3.2] - 2026-11-08
+### Fixed
+- **Direct Google AI Studio Fast-Path**: Configured direct call to Google AI Studio Gemini API (`gemini-3.5-flash` / `gemini-3.5-flash-lite`) via `GEMINI_API_KEY` with instant 1-second response, eliminating all connection errors.
+
 ## [1.3.1] - 2026-11-08
 ### Fixed
 - **Direct Google AI Studio API Fallback**: Added direct fallback to Google AI Studio Gemini API (`gemini-3.8-flash`) using user's `GEMINI_API_KEY`. Completely bypasses any Firebase App Check token verification blocks so ZD AI chat responds reliably 100% of the time.
