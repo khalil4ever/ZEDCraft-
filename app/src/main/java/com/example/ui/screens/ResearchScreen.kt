@@ -1,10 +1,15 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -23,58 +28,58 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.ai.ZedCraftAiConfig
+import com.example.data.remote.CompetitorComparison
+import com.example.data.remote.KeywordResearchResult
 import com.example.data.remote.YouTubeApiClient
-import com.example.data.remote.YtVideoDetail
-import com.example.ui.components.AnimatedScoreRing
-import com.example.ui.components.DataBadge
-import com.example.ui.components.EmptyStateCard
-import com.example.ui.components.ErrorBanner
-import com.example.ui.components.GlassCard
-import com.example.ui.components.LoadingBanner
-import com.example.ui.components.SectionHeader
-import com.example.ui.components.SegmentedPillBar
-import com.example.ui.components.SubScoreBar
-import com.example.ui.theme.ZedCyan
-import com.example.ui.theme.ZedSuccess
-import com.example.ui.theme.ZedViolet
-import com.example.ui.theme.ZedWarning
-import com.example.ui.viewmodel.DetailDestination
+import com.example.ui.theme.ZedAmberWarning
+import com.example.ui.theme.ZedCardBorder
+import com.example.ui.theme.ZedCoralError
+import com.example.ui.theme.ZedCyanPrimary
+import com.example.ui.theme.ZedDarkBackground
+import com.example.ui.theme.ZedDarkSurfaceElevated
+import com.example.ui.theme.ZedEmeraldSuccess
+import com.example.ui.theme.ZedGlassSurface
+import com.example.ui.theme.ZedPurpleAccent
+import com.example.ui.theme.ZedTextMuted
+import com.example.ui.theme.ZedTextSecondary
+import com.example.ui.viewmodel.ResearchSubTab
 import com.example.ui.viewmodel.ZedCraftUiState
 import com.example.ui.viewmodel.ZedCraftViewModel
 import java.util.Locale
@@ -84,254 +89,308 @@ fun ResearchScreen(
     uiState: ZedCraftUiState,
     viewModel: ZedCraftViewModel
 ) {
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .background(ZedDarkBackground)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
-        SegmentedPillBar(
-            options = listOf(
-                "Keywords" to Icons.Default.Search,
-                "Trends" to Icons.Default.TrendingUp,
-                "Competitors" to Icons.Default.Groups,
-                "Ideas" to Icons.Default.Lightbulb
-            ),
-            selectedIndex = uiState.researchSubTab,
+        ResearchSubTabBar(
+            selected = uiState.selectedResearchSubTab,
             onSelect = { viewModel.selectResearchSubTab(it) }
         )
-        Spacer(modifier = Modifier.height(10.dp))
 
-        when (uiState.researchSubTab) {
-            0 -> KeywordResearchPane(uiState, viewModel)
-            1 -> TrendFinderPane(uiState, viewModel)
-            2 -> CompetitorTrackerPane(uiState, viewModel)
-            else -> IdeaFinderPane(uiState, viewModel)
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            when (uiState.selectedResearchSubTab) {
+                ResearchSubTab.Keywords -> {
+                    item {
+                        KeywordExplorerSection(uiState = uiState, viewModel = viewModel, context = context)
+                    }
+                }
+                ResearchSubTab.TrendsAndIdeas -> {
+                    item {
+                        TrendsAndViralIdeasSection(uiState = uiState, viewModel = viewModel, context = context)
+                    }
+                }
+                ResearchSubTab.Competitors -> {
+                    item {
+                        CompetitorBenchmarkSection(uiState = uiState, viewModel = viewModel)
+                    }
+                }
+                ResearchSubTab.Comments -> {
+                    item {
+                        CommentSentimentSection(uiState = uiState, viewModel = viewModel)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResearchSubTabBar(
+    selected: ResearchSubTab,
+    onSelect: (ResearchSubTab) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(ZedGlassSurface)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ResearchSubTab.entries.forEach { tab ->
+            val isSelected = tab == selected
+            val icon: ImageVector = when (tab) {
+                ResearchSubTab.Keywords -> Icons.Default.Search
+                ResearchSubTab.TrendsAndIdeas -> Icons.AutoMirrored.Filled.TrendingUp
+                ResearchSubTab.Competitors -> Icons.AutoMirrored.Filled.CompareArrows
+                ResearchSubTab.Comments -> Icons.Default.Comment
+            }
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onSelect(tab) }
+                    .testTag("research_subtab_${tab.name.lowercase()}"),
+                color = if (isSelected) ZedCyanPrimary else ZedDarkSurfaceElevated,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, if (isSelected) ZedCyanPrimary else ZedCardBorder)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = tab.label,
+                        tint = if (isSelected) ZedDarkBackground else ZedTextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = tab.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) ZedDarkBackground else Color.White
+                    )
+                }
+            }
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun KeywordResearchPane(
+private fun KeywordExplorerSection(
     uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
+    viewModel: ZedCraftViewModel,
+    context: Context
 ) {
-    val clipboard = LocalClipboardManager.current
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "YouTube Keyword Opportunity & Difficulty Radar",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Analyzes top ranking videos, view velocity, title match density, and real autocomplete suggestions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ZedTextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SectionHeader(
-                title = "Real YouTube Keyword Research",
-                subtitle = "Uses real YouTube search results & channel/video telemetry to compute Opportunity vs Competition.",
-                badgeText = "YouTube Data API v3",
-                isAiBadge = false
-            )
-        }
-
-        item {
-            GlassCard {
                 OutlinedTextField(
-                    value = uiState.keywordInput,
-                    onValueChange = { viewModel.updateKeywordInput(it) },
-                    label = { Text("Search Keyword or Topic (e.g., how to edit youtube shorts)") },
+                    value = uiState.keywordSeedInput,
+                    onValueChange = { viewModel.updateKeywordSeedInput(it) },
+                    placeholder = { Text("Enter keyword (e.g., AI video editing, Android Studio)") },
                     singleLine = true,
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = ZedCyanPrimary)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("keyword_research_input"),
-                    shape = RoundedCornerShape(14.dp)
+                        .testTag("keyword_seed_input"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ZedCyanPrimary,
+                        unfocusedBorderColor = ZedCardBorder
+                    )
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { viewModel.runKeywordResearch(forceRefresh = false) },
-                        enabled = !uiState.isResearchingKeyword,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("run_keyword_research_btn"),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Analyze Keyword", fontWeight = FontWeight.Bold)
-                    }
-                    OutlinedButton(
-                        onClick = { viewModel.runKeywordResearch(forceRefresh = true) },
-                        enabled = !uiState.isResearchingKeyword && uiState.keywordInput.isNotBlank(),
-                        modifier = Modifier.height(48.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Bypass Cache & Refresh")
-                    }
-                }
-            }
-        }
 
-        if (uiState.isResearchingKeyword) {
-            item {
-                LoadingBanner(message = "Fetching top-ranking YouTube videos, channel sizes, and tags...")
-            }
-        }
-
-        uiState.keywordError?.let { err ->
-            item {
-                ErrorBanner(
-                    message = err,
-                    onActionLabel = if (!uiState.isYouTubeApiKeyConfigured) "Open Setup Guide" else null,
-                    onAction = if (!uiState.isYouTubeApiKeyConfigured) {
-                        { viewModel.openDetail(DetailDestination.SetupGuide) }
-                    } else null
-                )
-            }
-        }
-
-        val res = uiState.keywordResult
-        if (res == null && !uiState.isResearchingKeyword) {
-            item {
-                EmptyStateCard(
-                    title = "Discover Breakout Topics",
-                    message = "Enter any keyword to see real ranking videos, average views, channel sizes, small-channel outliers, and extracted tags.",
-                    actionLabel = if (!uiState.isYouTubeApiKeyConfigured) "Configure YouTube API Key" else null,
-                    onAction = if (!uiState.isYouTubeApiKeyConfigured) {
-                        { viewModel.openDetail(DetailDestination.SetupGuide) }
-                    } else null
-                )
-            }
-        }
-
-        if (res != null) {
-            item {
-                GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.55f)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        AnimatedScoreRing(
-                            score = res.opportunityScore,
-                            label = "Opportunity Score",
-                            isAiEstimate = false
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            DataBadge(text = "ZEDCraft Computed Score", isAi = false)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            SubScoreBar(
-                                label = "Search Demand & Velocity",
-                                score = res.demandScore,
-                                note = "Avg Views: ${YouTubeApiClient.formatCompact(res.avgViewsTopResults)} • Max: ${YouTubeApiClient.formatCompact(res.maxViewsTopResults)}"
-                            )
-                            SubScoreBar(
-                                label = "Ranking Competition",
-                                score = res.competitionScore,
-                                note = "Avg Channel Subs: ${YouTubeApiClient.formatCompact(res.avgChannelSubscribers)} • Small Outliers (<50K subs): ${res.smallChannelOutliersCount}"
-                            )
-                        }
-                    }
+                if (!uiState.researchError.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = res.methodologyNote,
+                        text = uiState.researchError,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = ZedCoralError
                     )
                 }
-            }
 
-            if (res.relatedKeywords.isNotEmpty() || res.risingTopics.isNotEmpty()) {
-                item {
-                    GlassCard {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { viewModel.runKeywordResearch() },
+                    enabled = !uiState.isResearchingKeywords,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("run_keyword_research_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ZedCyanPrimary,
+                        contentColor = ZedDarkBackground
+                    )
+                ) {
+                    if (uiState.isResearchingKeywords) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = ZedDarkBackground
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Scanning YouTube Search Landscape...")
+                    } else {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Analyze Keyword Opportunity", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        val kwRes: KeywordResearchResult? = uiState.keywordResearchResult
+        if (kwRes != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.45f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "\"${kwRes.seedKeyword}\"",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = kwRes.verdict,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ZedCyanPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = ZedEmeraldSuccess.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, ZedEmeraldSuccess)
+                        ) {
+                            Text(
+                                text = "${kwRes.opportunityScore}/100",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = ZedEmeraldSuccess,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    KeywordScoreMeter("Search Demand Signal", kwRes.demandSignalScore, ZedCyanPrimary)
+                    KeywordScoreMeter("Competition Difficulty (Lower = Easier)", kwRes.competitionDifficultyScore, ZedAmberWarning)
+                    KeywordScoreMeter("Overall Opportunity Score", kwRes.opportunityScore, ZedEmeraldSuccess)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(
-                            text = "Related Search Suggestions & Rising Angles",
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "Top 10 Avg Views: ${YouTubeApiClient.formatCompact(kwRes.avgTopViews)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            (res.relatedKeywords + res.risingTopics).distinct().forEach { kw ->
-                                AssistChip(
-                                    onClick = {
-                                        viewModel.updateKeywordInput(kw)
-                                        viewModel.runKeywordResearch()
-                                    },
-                                    label = { Text(kw, style = MaterialTheme.typography.bodySmall) },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.TrendingUp,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(15.dp),
-                                            tint = ZedCyan
-                                        )
-                                    }
-                                )
-                            }
-                        }
+                        Text(
+                            text = "Median Views: ${YouTubeApiClient.formatCompact(kwRes.medianTopViews)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ZedTextSecondary
+                        )
                     }
                 }
             }
 
-            if (res.extractedTagsFromWinners.isNotEmpty()) {
-                item {
-                    GlassCard {
+            if (kwRes.autocompleteTerms.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedCardBorder)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Tags Extracted from Top-Ranking Videos",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Real public tags used by top results for '${res.keyword}'",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            OutlinedButton(
+                            Text(
+                                text = "YouTube Autocomplete Long-Tail Queries",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IconButton(
                                 onClick = {
-                                    val joined = res.extractedTagsFromWinners.joinToString(", ")
-                                    clipboard.setText(AnnotatedString(joined))
-                                    viewModel.showToast("Copied ${res.extractedTagsFromWinners.size} ranking tags!")
-                                },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    val joined = kwRes.autocompleteTerms.joinToString("\n")
+                                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    cb?.setPrimaryClip(ClipData.newPlainText("Keywords", joined))
+                                    Toast.makeText(context, "Copied long-tail keywords!", Toast.LENGTH_SHORT).show()
+                                }
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Copy All")
+                                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Copy", tint = ZedCyanPrimary)
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            res.extractedTagsFromWinners.forEach { tag ->
+                            kwRes.autocompleteTerms.forEach { term ->
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
                                     modifier = Modifier.clickable {
-                                        clipboard.setText(AnnotatedString(tag))
-                                        viewModel.showToast("Copied tag: $tag")
-                                    }
+                                        viewModel.updateKeywordSeedInput(term)
+                                        viewModel.runKeywordResearch()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = ZedDarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, ZedCardBorder)
                                 ) {
                                     Text(
-                                        text = "#$tag",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        text = term,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = ZedCyanPrimary,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                     )
                                 }
                             }
@@ -340,516 +399,371 @@ private fun KeywordResearchPane(
                 }
             }
 
-            item {
-                SectionHeader(
-                    title = "Top-Ranking Videos (${res.topVideos.size})",
-                    subtitle = "Tap any video to run a full ZEDCraft SEO Audit & inspect its packaging."
-                )
-            }
-
-            items(res.topVideos, key = { it.videoId }) { video ->
-                RankingVideoCard(
-                    video = video,
-                    onAudit = {
-                        viewModel.openDetail(DetailDestination.VideoAnalyzerAndAudit(video.videoId))
-                    },
-                    onScoreThumbnail = {
-                        viewModel.selectOptimizeSubTab(0)
-                        viewModel.loadThumbnailFromVideoUrlOrDetail(video.videoId, video.title)
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrendFinderPane(
-    uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
-) {
-    val regions = listOf(
-        "US" to "United States",
-        "GB" to "UK",
-        "CA" to "Canada",
-        "IN" to "India",
-        "AU" to "Australia",
-        "DE" to "Germany"
-    )
-    val categories = listOf(
-        "0" to "All Categories",
-        "20" to "Gaming",
-        "28" to "Science & Tech",
-        "24" to "Entertainment",
-        "27" to "Education",
-        "10" to "Music"
-    )
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            SectionHeader(
-                title = "Real-Time Trending Videos",
-                subtitle = "Live mostPopular chart from YouTube Data API v3 with outlier velocity multipliers.",
-                badgeText = "YouTube Data API v3",
-                isAiBadge = false
-            )
-        }
-
-        item {
-            GlassCard {
+            if (kwRes.topRankingVideos.isNotEmpty()) {
                 Text(
-                    text = "Region",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "Top Ranking Videos for \"${kwRes.seedKeyword}\"",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    regions.forEach { (code, label) ->
-                        FilterChip(
-                            selected = uiState.selectedTrendRegion == code,
-                            onClick = {
-                                viewModel.updateTrendFilters(code, uiState.selectedTrendCategoryId)
-                            },
-                            label = { Text("$code • $label") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                selectedLabelColor = MaterialTheme.colorScheme.primary
-                            )
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Category",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    categories.forEach { (catId, label) ->
-                        FilterChip(
-                            selected = uiState.selectedTrendCategoryId == catId,
-                            onClick = {
-                                viewModel.updateTrendFilters(uiState.selectedTrendRegion, catId)
-                            },
-                            label = { Text(label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = ZedViolet.copy(alpha = 0.22f),
-                                selectedLabelColor = ZedViolet
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        if (uiState.isLoadingTrends) {
-            item {
-                LoadingBanner(message = "Loading trending chart (${uiState.selectedTrendRegion})...")
-            }
-        }
-
-        uiState.trendsError?.let { err ->
-            item {
-                ErrorBanner(
-                    message = err,
-                    onActionLabel = if (!uiState.isYouTubeApiKeyConfigured) "Open Setup Guide" else "Retry",
-                    onAction = {
-                        if (!uiState.isYouTubeApiKeyConfigured) {
-                            viewModel.openDetail(DetailDestination.SetupGuide)
-                        } else {
-                            viewModel.loadTrendingVideos(forceRefresh = true)
-                        }
-                    }
-                )
-            }
-        }
-
-        if (uiState.trendingVideos.isEmpty() && !uiState.isLoadingTrends) {
-            item {
-                EmptyStateCard(
-                    title = "Load Live YouTube Trends",
-                    message = "Fetch real trending videos in your region and category to spot rising formats and packaging trends.",
-                    actionLabel = "Fetch Trending Chart",
-                    onAction = { viewModel.loadTrendingVideos(forceRefresh = true) }
-                )
-            }
-        }
-
-        items(uiState.trendingVideos, key = { it.videoId }) { video ->
-            RankingVideoCard(
-                video = video,
-                onAudit = {
-                    viewModel.openDetail(DetailDestination.VideoAnalyzerAndAudit(video.videoId))
-                },
-                onScoreThumbnail = {
-                    viewModel.selectOptimizeSubTab(0)
-                    viewModel.loadThumbnailFromVideoUrlOrDetail(video.videoId, video.title)
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun CompetitorTrackerPane(
-    uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SectionHeader(
-                title = "Competitor Channel Benchmark",
-                subtitle = "Track public channels side-by-side against your connected channel.",
-                badgeText = "YouTube Data API v3",
-                isAiBadge = false
-            )
-        }
-
-        item {
-            GlassCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = uiState.competitorInput,
-                        onValueChange = { viewModel.updateCompetitorInput(it) },
-                        label = { Text("Add @handle, Channel ID, or URL") },
-                        singleLine = true,
+                kwRes.topRankingVideos.take(6).forEach { v ->
+                    Card(
                         modifier = Modifier
-                            .weight(1f)
-                            .testTag("competitor_input"),
-                        shape = RoundedCornerShape(14.dp)
-                    )
-                    Button(
-                        onClick = { viewModel.addCompetitorChannel() },
-                        enabled = !uiState.isAddingCompetitor,
-                        modifier = Modifier
-                            .height(54.dp)
-                            .testTag("add_competitor_btn"),
-                        shape = RoundedCornerShape(14.dp)
+                            .fillMaxWidth()
+                            .clickable { viewModel.analyzeVideoDeeply(v.videoId) },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                        border = BorderStroke(1.dp, ZedCardBorder)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Competitor")
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Track")
-                    }
-                }
-            }
-        }
-
-        if (uiState.isAddingCompetitor) {
-            item {
-                LoadingBanner(message = "Looking up competitor channel statistics & recent uploads...")
-            }
-        }
-
-        uiState.competitorError?.let { err ->
-            item { ErrorBanner(message = err) }
-        }
-
-        val myChannel = uiState.activeChannel
-        if (myChannel != null) {
-            item {
-                GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.6f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AsyncImage(
-                            model = myChannel.thumbnailUrl,
-                            contentDescription = myChannel.title,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            DataBadge(text = "Your Connected Channel", isAi = false)
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = myChannel.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AsyncImage(
+                                model = v.thumbnailUrl,
+                                contentDescription = v.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .width(110.dp)
+                                    .height(62.dp)
+                                    .clip(RoundedCornerShape(10.dp))
                             )
-                            Text(
-                                text = "${YouTubeApiClient.formatCompact(myChannel.subscriberCount)} subs • ${YouTubeApiClient.formatCompact(myChannel.viewCount)} total views • ${myChannel.videoCount} videos",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        if (uiState.trackedCompetitors.isEmpty() && !uiState.isAddingCompetitor) {
-            item {
-                EmptyStateCard(
-                    title = "No Competitors Tracked Yet",
-                    message = "Add any public YouTube channel by @handle (e.g. @mkbhd, @MrBeast) to compare subscriber scale, total views, and recent upload averages."
-                )
-            }
-        }
-
-        items(uiState.trackedCompetitors, key = { it.channelId }) { comp ->
-            GlassCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AsyncImage(
-                        model = comp.thumbnailUrl,
-                        contentDescription = comp.title,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = comp.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (comp.handle.isNotBlank()) {
-                            Text(
-                                text = comp.handle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    IconButton(onClick = { viewModel.removeCompetitor(comp.channelId) }) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Remove ${comp.title}",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    CompetitorStatColumn("Subscribers", YouTubeApiClient.formatCompact(comp.subscriberCount))
-                    CompetitorStatColumn("Total Views", YouTubeApiClient.formatCompact(comp.viewCount))
-                    CompetitorStatColumn("Uploads", comp.videoCount.toString())
-                    CompetitorStatColumn("Recent Avg", YouTubeApiClient.formatCompact(comp.recentAvgViews))
-                }
-                if (myChannel != null && myChannel.subscriberCount > 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    val ratio = comp.subscriberCount.toDouble() / myChannel.subscriberCount.toDouble()
-                    Text(
-                        text = String.format(
-                            Locale.US,
-                            "Comparison: %.1fx your subscriber count • Recent avg %s views/video",
-                            ratio,
-                            YouTubeApiClient.formatCompact(comp.recentAvgViews)
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompetitorStatColumn(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun IdeaFinderPane(
-    uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
-) {
-    val clipboard = LocalClipboardManager.current
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SectionHeader(
-                title = "AI Breakout Video Idea Generator",
-                subtitle = "Generates 6 complete video concepts with titles, thumbnail visuals, and 15-second hooks.",
-                badgeText = ZedCraftAiConfig.ZD_MAIN_MODEL,
-                isAiBadge = true
-            )
-        }
-
-        item {
-            GlassCard {
-                OutlinedTextField(
-                    value = uiState.ideaNicheInput,
-                    onValueChange = { viewModel.updateIdeaNicheInput(it) },
-                    label = {
-                        Text(
-                            if (uiState.activeChannel != null) {
-                                "Topic or Niche (defaults to ${uiState.activeChannel.title})"
-                            } else {
-                                "Your Channel Niche or Video Topic"
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = v.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${v.channelTitle} • ${YouTubeApiClient.formatCompact(v.viewCount)} views",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ZedCyanPrimary
+                                )
                             }
-                        )
-                    },
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeywordScoreMeter(label: String, score: Int, color: Color) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = label, style = MaterialTheme.typography.labelSmall, color = ZedTextSecondary)
+            Text(text = "$score/100", style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        LinearProgressIndicator(
+            progress = { (score / 100f).coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp)),
+            color = color,
+            trackColor = ZedDarkBackground
+        )
+    }
+}
+
+@Composable
+private fun TrendsAndViralIdeasSection(
+    uiState: ZedCraftUiState,
+    viewModel: ZedCraftViewModel,
+    context: Context
+) {
+    var nicheQuery by remember {
+        mutableStateOf(uiState.activeChannel?.title ?: uiState.optimizeNicheInput)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Breakout Topic & Outlier Video Idea Generator",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Generates 10 high-demand, low-saturation video concepts with clickable titles (<60 chars), 3-word thumbnail text, and opening hooks.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ZedTextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = nicheQuery,
+                    onValueChange = { nicheQuery = it },
+                    label = { Text("Your Niche, Topic, or Audience") },
                     singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("idea_niche_input"),
-                    shape = RoundedCornerShape(14.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ZedCyanPrimary,
+                        unfocusedBorderColor = ZedCardBorder
+                    )
                 )
-                Spacer(modifier = Modifier.height(10.dp))
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Button(
-                    onClick = { viewModel.generateAiVideoIdeas() },
-                    enabled = !uiState.isGeneratingIdeas,
+                    onClick = { viewModel.generateViralTopicIdeasForNiche(nicheQuery) },
+                    enabled = !uiState.isGeneratingTrendIdeas,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("generate_video_ideas_btn"),
-                    shape = RoundedCornerShape(14.dp)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ZedPurpleAccent,
+                        contentColor = Color.White
+                    )
                 ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Generate 6 High-CTR Video Ideas", fontWeight = FontWeight.Bold)
+                    if (uiState.isGeneratingTrendIdeas) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Finding 10 Outlier Video Ideas...")
+                    } else {
+                        Icon(imageVector = Icons.Default.Lightbulb, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Generate 10 Breakout Video Ideas", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
 
-        if (uiState.isGeneratingIdeas) {
-            item {
-                LoadingBanner(message = "Running ${ZedCraftAiConfig.ZD_MAIN_MODEL} content strategy synthesis...")
-            }
-        }
-
-        uiState.ideasError?.let { err ->
-            item { ErrorBanner(message = err) }
-        }
-
-        val ideasRes = uiState.videoIdeasResult
-        if (ideasRes == null && !uiState.isGeneratingIdeas) {
-            item {
-                EmptyStateCard(
-                    title = "Never Run Out of Outlier Video Ideas",
-                    message = "ZEDCraft combines your channel's top performers and live trends to craft 6 complete video packages (Title + Thumbnail Concept + 15s Hook)."
-                )
-            }
-        }
-
-        if (ideasRes != null) {
-            if (ideasRes.fallbackNotice != null) {
-                item {
-                    DataBadge(text = ideasRes.fallbackNotice, isAi = true, colorOverride = ZedWarning)
-                }
-            }
-            items(ideasRes.ideas) { idea ->
-                GlassCard(accentBorderColor = ZedViolet.copy(alpha = 0.5f)) {
+        if (!uiState.trendIdeasMarkdown.isNullOrBlank()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedPurpleAccent.copy(alpha = 0.45f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DataBadge(text = "${idea.targetPillar} Pillar", isAi = true)
-                        DataBadge(
-                            text = "AI Estimate: ${idea.opportunityScore}/100",
-                            isAi = true,
-                            colorOverride = ZedSuccess
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = idea.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
                         Text(
-                            text = "Thumbnail Visual: ${idea.thumbnailConcept}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "10 High-CTR Video Ideas",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ZedPurpleAccent
                         )
-                        Text(
-                            text = "Thumbnail Text (Max 4 words): \"${idea.thumbnailTextOverlay}\"",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = ZedCyan,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "First 15s Hook: ${idea.hookFirst15Seconds}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Why it works now: ${idea.whyItFitsChannel}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.selectOptimizeSubTab(1)
-                                viewModel.updateTitleInputs(idea.title, uiState.ideaNicheInput)
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Send to Title Optimizer")
-                        }
                         IconButton(
                             onClick = {
-                                val text = "${idea.title}\nThumbnail: ${idea.thumbnailConcept} (${idea.thumbnailTextOverlay})\nHook: ${idea.hookFirst15Seconds}"
-                                clipboard.setText(AnnotatedString(text))
-                                viewModel.showToast("Copied video idea package!")
+                                viewModel.saveIdeaToVault(
+                                    category = "Viral Ideas",
+                                    title = "10 Breakout Ideas: $nicheQuery",
+                                    content = uiState.trendIdeasMarkdown
+                                )
+                                Toast.makeText(context, "Saved ideas to Vault!", Toast.LENGTH_SHORT).show()
                             }
                         ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Idea")
+                            Icon(imageVector = Icons.Default.BookmarkAdd, contentDescription = "Save", tint = ZedCyanPrimary)
                         }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.trendIdeasMarkdown,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompetitorBenchmarkSection(
+    uiState: ZedCraftUiState,
+    viewModel: ZedCraftViewModel
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Head-to-Head Competitor Channel Benchmark",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Compare any two YouTube channels side-by-side: subscribers, average views per upload, engagement rate, and Shorts mix.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ZedTextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = uiState.competitorInputA.ifBlank { uiState.activeChannel?.handle.orEmpty() },
+                    onValueChange = { viewModel.updateCompetitorInputs(it, uiState.competitorInputB) },
+                    label = { Text("Channel A (@handle or Channel ID)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ZedCyanPrimary,
+                        unfocusedBorderColor = ZedCardBorder
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = uiState.competitorInputB,
+                    onValueChange = {
+                        viewModel.updateCompetitorInputs(
+                            uiState.competitorInputA.ifBlank { uiState.activeChannel?.handle.orEmpty() },
+                            it
+                        )
+                    },
+                    label = { Text("Competitor Channel B (@handle or Channel ID)") },
+                    placeholder = { Text("e.g., @mkbhd, @MrBeast") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ZedCyanPrimary,
+                        unfocusedBorderColor = ZedCardBorder
+                    )
+                )
+
+                if (!uiState.researchError.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.researchError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ZedCoralError
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { viewModel.runCompetitorComparison() },
+                    enabled = !uiState.isComparingCompetitors,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ZedCyanPrimary,
+                        contentColor = ZedDarkBackground
+                    )
+                ) {
+                    if (uiState.isComparingCompetitors) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = ZedDarkBackground
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Benchmarking Channels...")
+                    } else {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.CompareArrows, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Compare Channels Side-by-Side", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        val comp: CompetitorComparison? = uiState.competitorComparison
+        if (comp != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.45f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ChannelMiniHeader(
+                            modifier = Modifier.weight(1f),
+                            title = comp.primaryChannel.title,
+                            handle = comp.primaryChannel.handle,
+                            thumbUrl = comp.primaryChannel.thumbnailUrl,
+                            accent = ZedCyanPrimary
+                        )
+                        Text(
+                            text = "VS",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ZedAmberWarning,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        ChannelMiniHeader(
+                            modifier = Modifier.weight(1f),
+                            title = comp.competitorChannel.title,
+                            handle = comp.competitorChannel.handle,
+                            thumbUrl = comp.competitorChannel.thumbnailUrl,
+                            accent = ZedPurpleAccent
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    ComparisonMetricRow(
+                        label = "Subscribers",
+                        leftVal = YouTubeApiClient.formatCompact(comp.primaryChannel.subscriberCount),
+                        rightVal = YouTubeApiClient.formatCompact(comp.competitorChannel.subscriberCount)
+                    )
+                    ComparisonMetricRow(
+                        label = "Avg Views (Recent)",
+                        leftVal = YouTubeApiClient.formatCompact(comp.primaryAvgViews),
+                        rightVal = YouTubeApiClient.formatCompact(comp.competitorAvgViews)
+                    )
+                    ComparisonMetricRow(
+                        label = "Engagement Rate",
+                        leftVal = String.format(Locale.US, "%.2f%%", comp.primaryEngagementRate),
+                        rightVal = String.format(Locale.US, "%.2f%%", comp.competitorEngagementRate)
+                    )
+                    ComparisonMetricRow(
+                        label = "Shorts Ratio",
+                        leftVal = "${comp.primaryShortsPct}%",
+                        rightVal = "${comp.competitorShortsPct}%"
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Key Strategic Takeaways:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = ZedEmeraldSuccess,
+                        fontWeight = FontWeight.Bold
+                    )
+                    comp.keyTakeaways.forEach { bullet ->
+                        Text(
+                            text = "• $bullet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White,
+                            modifier = Modifier.padding(vertical = 3.dp)
+                        )
                     }
                 }
             }
@@ -858,88 +772,155 @@ private fun IdeaFinderPane(
 }
 
 @Composable
-fun RankingVideoCard(
-    video: YtVideoDetail,
-    onAudit: () -> Unit,
-    onScoreThumbnail: () -> Unit
+private fun ChannelMiniHeader(
+    modifier: Modifier = Modifier,
+    title: String,
+    handle: String,
+    thumbUrl: String,
+    accent: Color
 ) {
-    GlassCard {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        AsyncImage(
+            model = thumbUrl,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = handle,
+            style = MaterialTheme.typography.labelSmall,
+            color = accent,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ComparisonMetricRow(label: String, leftVal: String, rightVal: String) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = ZedDarkSurfaceElevated
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = video.highResThumbnailUrl.ifBlank { video.thumbnailUrl },
-                contentDescription = video.title,
-                modifier = Modifier
-                    .width(126.dp)
-                    .height(72.dp)
-                    .clip(RoundedCornerShape(10.dp)),
-                contentScale = ContentScale.Crop
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Text(text = leftVal, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ZedCyanPrimary)
+            Text(text = label, style = MaterialTheme.typography.labelSmall, color = ZedTextSecondary)
+            Text(text = rightVal, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ZedPurpleAccent)
+        }
+    }
+}
+
+@Composable
+private fun CommentSentimentSection(
+    uiState: ZedCraftUiState,
+    viewModel: ZedCraftViewModel
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = video.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    text = "Audience Comment Sentiment & Question Miner",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${video.channelTitle} • ${YouTubeApiClient.formatCompact(video.viewCount)} views",
+                    text = "Fetches real viewer comments from any YouTube video and extracts unanswered questions and next-video ideas.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = ZedTextSecondary
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (video.channelSubscribers > 0) {
-                        val mult = video.outlierMultiplier
-                        DataBadge(
-                            text = String.format(Locale.US, "%.1fx Subs", mult),
-                            isAi = false,
-                            colorOverride = if (mult >= 1.5) ZedSuccess else ZedCyan
-                        )
-                    }
-                    DataBadge(
-                        text = String.format(Locale.US, "%.1f%% Eng", video.engagementRatePercent),
-                        isAi = false
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = uiState.commentVideoUrlInput,
+                    onValueChange = { viewModel.updateCommentVideoUrlInput(it) },
+                    label = { Text("YouTube Video URL or ID (blank uses selected video)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ZedCyanPrimary,
+                        unfocusedBorderColor = ZedCardBorder
                     )
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { viewModel.runCommentSentimentExplorer() },
+                    enabled = !uiState.isAnalyzingComments,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ZedCyanPrimary,
+                        contentColor = ZedDarkBackground
+                    )
+                ) {
+                    if (uiState.isAnalyzingComments) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = ZedDarkBackground
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Mining Comments & Sentiment...")
+                    } else {
+                        Icon(imageVector = Icons.Default.Comment, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Analyze Viewer Comments", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
-                onClick = onAudit,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(vertical = 8.dp, horizontal = 10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                    contentColor = MaterialTheme.colorScheme.primary
-                ),
-                shape = RoundedCornerShape(10.dp)
+
+        if (!uiState.commentSentimentMarkdown.isNullOrBlank()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
             ) {
-                Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("1-Tap SEO Audit", style = MaterialTheme.typography.labelLarge)
-            }
-            OutlinedButton(
-                onClick = onScoreThumbnail,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(vertical = 8.dp, horizontal = 10.dp),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(Icons.Default.Tag, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Score Thumbnail", style = MaterialTheme.typography.labelLarge)
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Audience Sentiment & Content Opportunities",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = ZedCyanPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.commentSentimentMarkdown,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
+                }
             }
         }
     }

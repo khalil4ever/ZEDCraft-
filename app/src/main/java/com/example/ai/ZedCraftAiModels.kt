@@ -18,6 +18,17 @@ data class ThumbnailScoreResult(
     val estimateLabel: String = "AI Estimate (Not an official YouTube metric)"
 )
 
+data class ThumbnailVisionResponse(
+    val overallScore: Int,
+    val readabilityScore: Int,
+    val contrastAndColorScore: Int,
+    val emotionalHookScore: Int,
+    val titleSynergyScore: Int,
+    val mobileSquintTestVerdict: String,
+    val timestampZoneWarning: String,
+    val actionableImprovements: List<String>
+)
+
 data class ThumbnailAbResult(
     val winner: String, // "A" or "B"
     val scoreA: Int,
@@ -36,6 +47,29 @@ data class SuggestedTitleOption(
     val score: Int,
     val angleType: String,
     val reason: String
+)
+
+data class TitleSuggestionItem(
+    val title: String,
+    val framework: String,
+    val score: Int,
+    val clarityScore: Int,
+    val curiosityScore: Int,
+    val keywordScore: Int,
+    val lengthScore: Int,
+    val clickAppealScore: Int,
+    val characterCount: Int = title.length,
+    val whyItWorks: String
+)
+
+data class TitleOptimizerResponse(
+    val originalScore: Int,
+    val originalDiagnosis: String,
+    val suggestedTitles: List<TitleSuggestionItem>,
+    val optimizedDescription: String,
+    val suggestedChapters: List<String>,
+    val recommendedTags: List<String>,
+    val hashtags: List<String>
 )
 
 data class TitleOptimizationResult(

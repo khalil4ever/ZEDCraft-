@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.data.remote.ChannelHealthReport
 import com.example.data.remote.YtAnalyticsOverview
 import com.example.data.remote.YtChannelDetail
+import com.example.data.remote.YtCommentItem
 import com.example.data.remote.YtVideoDetail
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
@@ -17,12 +18,14 @@ import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.ai.type.thinkingConfig
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 
 private const val TAG = "ZedCraftAiService"
-private const val AI_TIMEOUT_MS = 60_000L
+private const val AI_TIMEOUT_MS = 45_000L
+const val FRIENDLY_ZD_ERROR = "ZD is having trouble connecting. Please try again."
 
 class ZedCraftAiService {
 
@@ -33,9 +36,11 @@ class ZedCraftAiService {
     )
 
     /**
-     * Executes a prompt on ZD_MAIN_MODEL (gemini-4-argon) with ThinkingLevel.HIGH and no maxOutputTokens.
-     * If ZD_MAIN_MODEL returns a model-not-found, billing, or access error, automatically falls back to FAST_MODEL
-     * and surfaces a transparent notice.
+     * Executes a prompt on ZD_MAIN_MODEL:
+     * 1. Tries ZD_MAIN_MODEL.
+     * 2. If it fails, retries ZD_MAIN_MODEL once.
+     * 3. If it fails again, falls back to FAST_MODEL (gemini-3.8-flash) with retry.
+     * Technical details are logged to Logcat only; user-facing errors always use FRIENDLY_ZD_ERROR.
      */
     private suspend fun executeMainModelWithFallback(
         systemInstructionText: String,
@@ -52,57 +57,83 @@ class ZedCraftAiService {
             }
         }
 
-        try {
-            val mainModel = Firebase.ai.generativeModel(
-                modelName = ZedCraftAiConfig.ZD_MAIN_MODEL,
-                generationConfig = mainConfig,
-                systemInstruction = content { text(systemInstructionText) }
-            )
-            val response = withTimeout(AI_TIMEOUT_MS) {
-                mainModel.generateContent(promptContent)
-            }
-            val text = response.text?.trim().orEmpty()
-            if (text.isNotBlank()) {
-                return RawModelResult(
-                    text = text,
-                    modelUsed = "${ZedCraftAiConfig.ZD_MAIN_MODEL} (High Thinking)",
-                    fallbackNotice = null
+        // Attempt 1 & Retry 1 on ZD_MAIN_MODEL
+        for (attempt in 1..2) {
+            try {
+                val mainModel = Firebase.ai.generativeModel(
+                    modelName = ZedCraftAiConfig.ZD_MAIN_MODEL,
+                    generationConfig = mainConfig,
+                    systemInstruction = content { text(systemInstructionText) }
                 )
+                val response = withTimeout(AI_TIMEOUT_MS) {
+                    mainModel.generateContent(promptContent)
+                }
+                val text = response.text?.trim().orEmpty()
+                if (text.isNotBlank()) {
+                    return RawModelResult(
+                        text = text,
+                        modelUsed = "ZD AI",
+                        fallbackNotice = null
+                    )
+                }
+            } catch (e: CancellationException) {
+                if (e !is TimeoutCancellationException) throw e
+                Log.w(TAG, "Main model timed out on attempt $attempt", e)
+            } catch (e: Exception) {
+                Log.w(TAG, "Main model failed on attempt $attempt: ${e.message}", e)
             }
-        } catch (e: CancellationException) {
-            if (e !is TimeoutCancellationException) throw e
-            Log.w(TAG, "Main model timed out, falling back to FAST_MODEL", e)
-        } catch (e: Exception) {
-            Log.w(TAG, "ZD_MAIN_MODEL (${ZedCraftAiConfig.ZD_MAIN_MODEL}) unavailable, falling back to ${ZedCraftAiConfig.FAST_MODEL}: ${e.message}")
+            if (attempt == 1) {
+                delay(500L)
+            }
         }
 
-        // Automatic fallback to FAST_MODEL (gemini-3.8-flash)
+        // Fallback to gemini-3.8-flash (FAST_MODEL) with retry
         val fastConfig: GenerationConfig = generationConfig {
             if (responseSchema != null) {
                 responseMimeType = "application/json"
                 this.responseSchema = responseSchema
             }
         }
-        val fastModel = Firebase.ai.generativeModel(
-            modelName = ZedCraftAiConfig.FAST_MODEL,
-            generationConfig = fastConfig,
-            systemInstruction = content { text(systemInstructionText) }
-        )
-        val fallbackResp = withTimeout(AI_TIMEOUT_MS) {
-            fastModel.generateContent(promptContent)
-        }
-        val fallbackText = fallbackResp.text?.trim()
-            ?: throw IllegalStateException("AI model returned an empty response.")
 
-        return RawModelResult(
-            text = fallbackText,
-            modelUsed = ZedCraftAiConfig.FAST_MODEL,
-            fallbackNotice = "Switched to ${ZedCraftAiConfig.FAST_MODEL} because ${ZedCraftAiConfig.ZD_MAIN_MODEL} was unavailable on this project tier."
-        )
+        var lastException: Exception? = null
+        for (fallbackAttempt in 1..2) {
+            try {
+                val fastModel = Firebase.ai.generativeModel(
+                    modelName = ZedCraftAiConfig.FAST_MODEL,
+                    generationConfig = fastConfig,
+                    systemInstruction = content { text(systemInstructionText) }
+                )
+                val fallbackResp = withTimeout(AI_TIMEOUT_MS) {
+                    fastModel.generateContent(promptContent)
+                }
+                val fallbackText = fallbackResp.text?.trim().orEmpty()
+                if (fallbackText.isNotBlank()) {
+                    return RawModelResult(
+                        text = fallbackText,
+                        modelUsed = "ZD AI",
+                        fallbackNotice = null
+                    )
+                }
+            } catch (e: CancellationException) {
+                if (e !is TimeoutCancellationException) throw e
+                lastException = e
+                Log.e(TAG, "Fallback model (${ZedCraftAiConfig.FAST_MODEL}) timed out on attempt $fallbackAttempt", e)
+            } catch (e: Exception) {
+                lastException = e
+                Log.e(TAG, "Fallback model (${ZedCraftAiConfig.FAST_MODEL}) failed on attempt $fallbackAttempt: ${e.message}", e)
+            }
+            if (fallbackAttempt == 1) {
+                delay(500L)
+            }
+        }
+
+        Log.e(TAG, "All ZD AI attempts and gemini-3.8-flash fallbacks failed", lastException)
+        throw IllegalStateException(FRIENDLY_ZD_ERROR)
     }
 
     /**
-     * Executes a fast tool request directly on FAST_MODEL (gemini-3.8-flash) to save quota and latency.
+     * Executes a fast tool request on FAST_MODEL (gemini-3.8-flash) with automatic retry once,
+     * and LITE_MODEL fallback if needed. Technical errors stay in Logcat only.
      */
     private suspend fun executeFastModel(
         systemInstructionText: String,
@@ -113,21 +144,66 @@ class ZedCraftAiService {
             responseMimeType = "application/json"
             this.responseSchema = responseSchema
         }
-        val model = Firebase.ai.generativeModel(
-            modelName = ZedCraftAiConfig.FAST_MODEL,
-            generationConfig = config,
-            systemInstruction = content { text(systemInstructionText) }
-        )
-        val response = withTimeout(AI_TIMEOUT_MS) {
-            model.generateContent(promptContent)
+
+        var lastError: Exception? = null
+        for (attempt in 1..2) {
+            try {
+                val model = Firebase.ai.generativeModel(
+                    modelName = ZedCraftAiConfig.FAST_MODEL,
+                    generationConfig = config,
+                    systemInstruction = content { text(systemInstructionText) }
+                )
+                val response = withTimeout(AI_TIMEOUT_MS) {
+                    model.generateContent(promptContent)
+                }
+                val text = response.text?.trim().orEmpty()
+                if (text.isNotBlank()) {
+                    return RawModelResult(
+                        text = text,
+                        modelUsed = "ZD AI",
+                        fallbackNotice = null
+                    )
+                }
+            } catch (e: CancellationException) {
+                if (e !is TimeoutCancellationException) throw e
+                lastError = e
+                Log.w(TAG, "Fast model timed out on attempt $attempt", e)
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "Fast model failed on attempt $attempt: ${e.message}", e)
+            }
+            if (attempt == 1) {
+                delay(500L)
+            }
         }
-        val text = response.text?.trim()
-            ?: throw IllegalStateException("Model returned an empty response.")
-        return RawModelResult(
-            text = text,
-            modelUsed = ZedCraftAiConfig.FAST_MODEL,
-            fallbackNotice = null
-        )
+
+        // Secondary fallback to LITE_MODEL
+        try {
+            val liteModel = Firebase.ai.generativeModel(
+                modelName = ZedCraftAiConfig.LITE_MODEL,
+                generationConfig = config,
+                systemInstruction = content { text(systemInstructionText) }
+            )
+            val response = withTimeout(AI_TIMEOUT_MS) {
+                liteModel.generateContent(promptContent)
+            }
+            val text = response.text?.trim().orEmpty()
+            if (text.isNotBlank()) {
+                return RawModelResult(
+                    text = text,
+                    modelUsed = "ZD AI",
+                    fallbackNotice = null
+                )
+            }
+        } catch (e: CancellationException) {
+            if (e !is TimeoutCancellationException) throw e
+            Log.e(TAG, "Lite model fallback timed out", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Lite model fallback failed: ${e.message}", e)
+        }
+
+        Log.e(TAG, "Fast tool AI call failed after retries", lastError)
+        throw IllegalStateException(FRIENDLY_ZD_ERROR)
     }
 
     // -----------------------------------------------------------------------
@@ -287,30 +363,28 @@ class ZedCraftAiService {
     }
 
     // -----------------------------------------------------------------------
-    // 3. TITLE OPTIMIZER (Score + Breakdown + 10 Non-Clickbait Alternatives)
+    // 3. TITLE OPTIMIZER (Score out of 100: Clarity, Curiosity, Keywords, Length, Click Appeal + 5 Better Titles)
     // -----------------------------------------------------------------------
     private val titleOptimizerSchema by lazy {
         Schema.obj(
             properties = mapOf(
                 "overallScore" to Schema.integer(description = "Overall title score 0-100"),
-                "lengthScore" to Schema.integer(description = "Length & mobile truncation score 0-100"),
-                "lengthNote" to Schema.string(),
-                "keywordPlacementScore" to Schema.integer(description = "Front-loaded keyword placement score 0-100"),
-                "keywordPlacementNote" to Schema.string(),
-                "curiosityScore" to Schema.integer(description = "Curiosity gap without deceptive clickbait 0-100"),
-                "curiosityNote" to Schema.string(),
                 "clarityScore" to Schema.integer(description = "Instant clarity of topic/value 0-100"),
                 "clarityNote" to Schema.string(),
-                "emotionalPullScore" to Schema.integer(description = "Emotional stakes or urgency 0-100"),
-                "emotionalPullNote" to Schema.string(),
-                "powerWordsScore" to Schema.integer(description = "Specificity, numbers, or contrast words 0-100"),
-                "powerWordsNote" to Schema.string(),
+                "curiosityScore" to Schema.integer(description = "Curiosity gap without deceptive clickbait 0-100"),
+                "curiosityNote" to Schema.string(),
+                "keywordPlacementScore" to Schema.integer(description = "Keywords & search relevance score 0-100"),
+                "keywordPlacementNote" to Schema.string(),
+                "lengthScore" to Schema.integer(description = "Length & mobile fit score 0-100"),
+                "lengthNote" to Schema.string(),
+                "clickAppealScore" to Schema.integer(description = "Click appeal, emotional pull & specificity 0-100"),
+                "clickAppealNote" to Schema.string(),
                 "improvedTitles" to Schema.array(
-                    description = "Exactly 10 improved title options across Search, Browse Curiosity, Contrarian, and Proof angles",
+                    description = "5 better titles (plus up to 5 bonus angles), each with its own score out of 100 and a short reason",
                     items = Schema.obj(
                         properties = mapOf(
                             "title" to Schema.string(description = "The improved title (42-64 chars ideal)"),
-                            "score" to Schema.integer(description = "Estimated packaging score 0-100"),
+                            "score" to Schema.integer(description = "Estimated score 0-100"),
                             "angleType" to Schema.string(description = "e.g., Curiosity Gap, Search Winner, Contrarian, Direct Proof, Timeframe"),
                             "reason" to Schema.string(description = "Short reason why this title earns higher CTR honestly")
                         )
@@ -328,12 +402,12 @@ class ZedCraftAiService {
         require(cleanTitle.isNotBlank()) { "Please enter a video title to score and optimize." }
 
         val prompt = buildString {
-            appendLine("Score and optimize this YouTube video title:")
+            appendLine("Score this YouTube video title out of 100 across Clarity, Curiosity, Keywords, Length, and Click Appeal, then generate 5 better titles:")
             appendLine("Title: \"$cleanTitle\" (${cleanTitle.length} characters)")
             if (videoContextOrNiche.isNotBlank()) {
                 appendLine("Video Topic / Niche Context: $videoContextOrNiche")
             }
-            appendLine("Generate 10 improved titles. Each must be honest (no deceptive clickbait that breaks viewer trust), punchy on mobile feeds (<64 chars preferred), and include a variety of angles (Curiosity Gap, Search Intent, Specific Number/Timeframe, Contrarian/Mistake, Transformation).")
+            appendLine("Generate at least 5 better titles (each with its own score out of 100 and a short, specific reason). Keep titles honest, high-curiosity, and punchy on mobile feeds (<64 chars preferred).")
         }
 
         val raw = executeFastModel(
@@ -344,12 +418,11 @@ class ZedCraftAiService {
 
         val json = JSONObject(raw.text)
         val breakdown = listOf(
-            SubMetricScore("Length & Mobile Fit (${cleanTitle.length} chars)", json.optInt("lengthScore", 75), json.optString("lengthNote")),
-            SubMetricScore("Keyword Placement", json.optInt("keywordPlacementScore", 75), json.optString("keywordPlacementNote")),
-            SubMetricScore("Curiosity Gap", json.optInt("curiosityScore", 75), json.optString("curiosityNote")),
-            SubMetricScore("Value Clarity", json.optInt("clarityScore", 75), json.optString("clarityNote")),
-            SubMetricScore("Emotional Pull", json.optInt("emotionalPullScore", 75), json.optString("emotionalPullNote")),
-            SubMetricScore("Specificity & Power Words", json.optInt("powerWordsScore", 75), json.optString("powerWordsNote"))
+            SubMetricScore("Clarity", json.optInt("clarityScore", 75), json.optString("clarityNote")),
+            SubMetricScore("Curiosity", json.optInt("curiosityScore", 75), json.optString("curiosityNote")),
+            SubMetricScore("Keywords", json.optInt("keywordPlacementScore", 75), json.optString("keywordPlacementNote")),
+            SubMetricScore("Length (${cleanTitle.length} chars)", json.optInt("lengthScore", 75), json.optString("lengthNote")),
+            SubMetricScore("Click Appeal", json.optInt("clickAppealScore", 75), json.optString("clickAppealNote"))
         )
 
         val suggestionsArr = json.optJSONArray("improvedTitles") ?: JSONArray()
@@ -359,8 +432,8 @@ class ZedCraftAiService {
             suggestions.add(
                 SuggestedTitleOption(
                     title = item.optString("title"),
-                    score = item.optInt("score", 88).coerceIn(0, 100),
-                    angleType = item.optString("angleType", "High CTR"),
+                    score = item.optInt("score", 90).coerceIn(0, 100),
+                    angleType = item.optString("angleType", "High Appeal"),
                     reason = item.optString("reason")
                 )
             )
@@ -392,7 +465,7 @@ class ZedCraftAiService {
             properties = mapOf(
                 "overallScore" to Schema.integer(description = "Score of the optimized description 0-100"),
                 "firstTwoLinesHook" to Schema.string(description = "Strong first 2 lines (130-160 chars) shown above 'Show more' and in search results"),
-                "fullOptimizedDescription" to Schema.string(description = "Complete ready-to-paste YouTube description with hook, natural keyword overview, chapters, CTA, and 3 hashtags"),
+                "fullOptimizedDescription" to Schema.string(description = "Complete ready-to-apply YouTube description with hook, natural keyword overview, chapters, CTA, and 3 hashtags"),
                 "generatedChapters" to Schema.array(
                     items = Schema.string(),
                     description = "Timestamps starting with 00:00 Intro"
@@ -427,9 +500,9 @@ class ZedCraftAiService {
             if (transcriptOrOutline.isNotBlank()) {
                 appendLine("Transcript / Captions / Video Notes (use this to generate accurate 00:00 chapters):\n$transcriptOrOutline")
             } else {
-                appendLine("Generate a logical 00:00 chapter structure with placeholder timestamps that the creator can adjust.")
+                appendLine("Generate a logical 00:00 chapter structure with timestamps that the creator can customize.")
             }
-            appendLine("Rules: Strong first 2 lines before 'Show more', natural keyword weaving (never spammy comma lists), clear chapters starting at 00:00, clean CTA placement, and the 3 best hashtags at the bottom.")
+            appendLine("Rules: Strong hook in the first 2 lines before 'Show more', natural keywords (never spammy comma lists), clear chapters starting at 00:00, clean CTA placement, and the 3 best hashtags at the bottom.")
         }
 
         val raw = executeFastModel(
@@ -453,7 +526,7 @@ class ZedCraftAiService {
     }
 
     // -----------------------------------------------------------------------
-    // 5. TAGS & HASHTAGS GENERATOR (Real Competitor Tags + Gemini)
+    // 5. TAGS & HASHTAGS GENERATOR
     // -----------------------------------------------------------------------
     private val tagsGeneratorSchema by lazy {
         Schema.obj(
@@ -503,7 +576,7 @@ class ZedCraftAiService {
         val fittedTags = mutableListOf<String>()
         var charTotal = 0
         for (tag in rawCandidateTags) {
-            val addition = if (fittedTags.isEmpty()) tag.length else tag.length + 2 // ", "
+            val addition = if (fittedTags.isEmpty()) tag.length else tag.length + 2
             if (charTotal + addition <= 480) {
                 fittedTags.add(tag)
                 charTotal += addition
@@ -527,7 +600,7 @@ class ZedCraftAiService {
     }
 
     // -----------------------------------------------------------------------
-    // 6. AI TREND & VIDEO IDEA FINDER (Powered by ZD_MAIN_MODEL with High Thinking)
+    // 6. AI TREND & VIDEO IDEA FINDER
     // -----------------------------------------------------------------------
     private val videoIdeasSchema by lazy {
         Schema.obj(
@@ -760,10 +833,250 @@ class ZedCraftAiService {
         return Bitmap.createScaledBitmap(source, newW, newH, true)
     }
 
+    // -----------------------------------------------------------------------
+    // 8. FULL METADATA & CUSTOM TITLE SCORER + COACH HELPERS FOR VIEWMODEL
+    // -----------------------------------------------------------------------
+
+    suspend fun generateOptimizedTitlesAndMetadata(
+        topicOrDraftTitle: String,
+        niche: String,
+        currentDescription: String,
+        currentTags: List<String>,
+        channelContext: String
+    ): Result<TitleOptimizerResponse> = runCatching {
+        val titleResult = scoreAndOptimizeTitle(
+            rawTitle = topicOrDraftTitle,
+            videoContextOrNiche = "$niche | $channelContext"
+        ).getOrThrow()
+
+        val descResult = runCatching {
+            optimizeDescriptionAndChapters(
+                videoTitleOrTopic = topicOrDraftTitle,
+                existingDescription = currentDescription,
+                transcriptOrOutline = ""
+            ).getOrThrow()
+        }.getOrNull()
+
+        val tagsResult = runCatching {
+            generateTagsAndHashtags(
+                topicOrTitle = topicOrDraftTitle,
+                realRankingTags = currentTags
+            ).getOrThrow()
+        }.getOrNull()
+
+        val diagnosisText = titleResult.breakdown.joinToString(" • ") { m ->
+            "${m.label}: ${m.score}/100 (${m.note})"
+        }
+
+        val mappedSuggestions = titleResult.tenImprovedTitles.map { s ->
+            val subBase = (s.score / 5).coerceIn(14, 20)
+            TitleSuggestionItem(
+                title = s.title,
+                framework = s.angleType,
+                score = s.score,
+                clarityScore = subBase,
+                curiosityScore = subBase,
+                keywordScore = (subBase - 1).coerceAtLeast(14),
+                lengthScore = if (s.title.length in 38..62) 20 else 16,
+                clickAppealScore = subBase,
+                characterCount = s.title.length,
+                whyItWorks = s.reason
+            )
+        }
+
+        TitleOptimizerResponse(
+            originalScore = titleResult.overallScore,
+            originalDiagnosis = diagnosisText,
+            suggestedTitles = mappedSuggestions,
+            optimizedDescription = descResult?.fullOptimizedDescription
+                ?: currentDescription.ifBlank { "Watch this deep dive on $topicOrDraftTitle!" },
+            suggestedChapters = descResult?.generatedChapters ?: listOf("00:00 Intro", "01:30 Core Breakdown", "05:00 Key Takeaways"),
+            recommendedTags = tagsResult?.recommendedTags ?: currentTags,
+            hashtags = descResult?.threeHashtags ?: tagsResult?.threeBestHashtags ?: listOf("#YouTubeGrowth", "#CreatorTips", "#ZEDCraft")
+        )
+    }
+
+    suspend fun scoreSingleCustomTitle(
+        customTitle: String,
+        niche: String,
+        channelContext: String
+    ): Result<TitleSuggestionItem> = runCatching {
+        val res = scoreAndOptimizeTitle(
+            rawTitle = customTitle,
+            videoContextOrNiche = "$niche | $channelContext"
+        ).getOrThrow()
+
+        val clarity = res.breakdown.firstOrNull { it.label.startsWith("Clarity") }?.score ?: 78
+        val curiosity = res.breakdown.firstOrNull { it.label.startsWith("Curiosity") }?.score ?: 78
+        val keywords = res.breakdown.firstOrNull { it.label.startsWith("Keywords") }?.score ?: 78
+        val length = res.breakdown.firstOrNull { it.label.startsWith("Length") }?.score ?: 78
+        val clickAppeal = res.breakdown.firstOrNull { it.label.startsWith("Click") }?.score ?: 78
+        val summaryWhy = res.breakdown.joinToString(" • ") { "${it.label}: ${it.note}" }
+
+        TitleSuggestionItem(
+            title = customTitle,
+            framework = "Your Custom Title",
+            score = res.overallScore,
+            clarityScore = (clarity / 5).coerceIn(1, 20),
+            curiosityScore = (curiosity / 5).coerceIn(1, 20),
+            keywordScore = (keywords / 5).coerceIn(1, 20),
+            lengthScore = (length / 5).coerceIn(1, 20),
+            clickAppealScore = (clickAppeal / 5).coerceIn(1, 20),
+            characterCount = customTitle.length,
+            whyItWorks = summaryWhy
+        )
+    }
+
+    suspend fun critiqueThumbnailWithVision(
+        primaryBitmap: Bitmap,
+        videoTitle: String,
+        comparisonBitmap: Bitmap? = null
+    ): Result<ThumbnailVisionResponse> = runCatching {
+        val scoreRes = scoreThumbnailWithVision(
+            bitmap = primaryBitmap,
+            pairedVideoTitle = videoTitle
+        ).getOrThrow()
+
+        val abNote = if (comparisonBitmap != null) {
+            runCatching {
+                val ab = compareThumbnailsAb(primaryBitmap, comparisonBitmap, videoTitle).getOrThrow()
+                "A/B Winner: Thumbnail ${ab.winner} (${ab.scoreA} vs ${ab.scoreB}) — ${ab.headlineVerdict}"
+            }.getOrNull()
+        } else null
+
+        val readability = scoreRes.breakdown.firstOrNull { it.label.contains("Readability") }?.score ?: 78
+        val contrast = scoreRes.breakdown.firstOrNull { it.label.contains("Contrast") }?.score ?: 78
+        val emotion = scoreRes.breakdown.firstOrNull { it.label.contains("Emotion") }?.score ?: 78
+        val mobileNote = scoreRes.breakdown.firstOrNull { it.label.contains("Mobile") }?.note
+            ?: scoreRes.titleSynergyVerdict
+
+        ThumbnailVisionResponse(
+            overallScore = scoreRes.overallScore,
+            readabilityScore = readability,
+            contrastAndColorScore = contrast,
+            emotionalHookScore = emotion,
+            titleSynergyScore = scoreRes.titleSynergyScore,
+            mobileSquintTestVerdict = if (abNote != null) "$mobileNote\n\n$abNote" else mobileNote,
+            timestampZoneWarning = scoreRes.problemAreas.firstOrNull()
+                ?: "Keep the bottom-right corner clear of text so the YouTube duration badge doesn't cover it.",
+            actionableImprovements = scoreRes.actionableFixes
+        )
+    }
+
+    suspend fun generateScriptAndHooks(
+        topic: String,
+        targetDurationMinutes: Int,
+        tone: String,
+        channelContext: String
+    ): Result<String> = runCatching {
+        val prompt = """
+            Write a high-retention YouTube video script & hook blueprint for:
+            - Topic / Title: "$topic"
+            - Target Duration: $targetDurationMinutes minutes
+            - Tone & Pacing: $tone
+            - Channel Context: $channelContext
+
+            Include:
+            1. **3 Opening 30-Second Hook Options** (Curiosity Gap, Proof-First, Pattern Interrupt) with exact spoken lines + visual B-roll cues.
+            2. **Minute-by-Minute Retention Outline** with mid-video re-hooks every 90 seconds.
+            3. **Binge-Loop Ending Script** (final 20 seconds that bridges directly into the viewer's next video without saying "thanks for watching").
+        """.trimIndent()
+
+        val raw = executeMainModelWithFallback(
+            systemInstructionText = ZedCraftAiConfig.ZD_SYSTEM_INSTRUCTION,
+            responseSchema = null,
+            promptContent = content { text(prompt) }
+        )
+        raw.text
+    }
+
+    suspend fun generateShortsRepurposePlan(
+        videoTitle: String,
+        videoDescriptionOrTranscript: String
+    ): Result<String> = runCatching {
+        val prompt = """
+            Create 3 high-retention vertical YouTube Shorts (<60s each) repurposed from this video:
+            - Source Video: "$videoTitle"
+            - Notes / Description / Transcript: ${videoDescriptionOrTranscript.take(1500)}
+
+            For each Short provide:
+            1. **Short Title (<50 chars)**
+            2. **First 2-Second Visual & Verbal Hook**
+            3. **Word-for-Word 45-Second Script**
+            4. **Seamless Loop Ending** (final sentence flows grammatically back into the first sentence)
+            5. **Related Video Bridge CTA** (how to point viewers to the full long-form video).
+        """.trimIndent()
+
+        val raw = executeMainModelWithFallback(
+            systemInstructionText = ZedCraftAiConfig.ZD_SYSTEM_INSTRUCTION,
+            responseSchema = null,
+            promptContent = content { text(prompt) }
+        )
+        raw.text
+    }
+
+    suspend fun analyzeCommentsAndAudienceSentiment(
+        videoTitle: String,
+        comments: List<YtCommentItem>
+    ): Result<String> = runCatching {
+        val sample = comments.take(35).joinToString("\n") { "- ${it.authorName} (${it.likeCount} likes): ${it.textDisplay.take(180)}" }
+        val prompt = """
+            Analyze these real viewer comments on the YouTube video "$videoTitle":
+            $sample
+
+            Provide:
+            1. **Overall Audience Sentiment & Emotional Reaction**
+            2. **Top Unanswered Viewer Questions & Pain Points**
+            3. **3 Sequel Video Ideas Requested by Viewers** (with clickable titles)
+            4. **Recommended Pinned Comment** to boost replies right now.
+        """.trimIndent()
+
+        val raw = executeMainModelWithFallback(
+            systemInstructionText = ZedCraftAiConfig.ZD_SYSTEM_INSTRUCTION,
+            responseSchema = null,
+            promptContent = content { text(prompt) }
+        )
+        raw.text
+    }
+
+    suspend fun askZdAssistant(
+        userPrompt: String,
+        channelContext: String,
+        chatHistory: List<Pair<String, String>>
+    ): Result<String> = runCatching {
+        val systemText = buildString {
+            appendLine(ZedCraftAiConfig.ZD_SYSTEM_INSTRUCTION)
+            appendLine()
+            appendLine("=== CONNECTED CHANNEL CONTEXT ===")
+            appendLine(channelContext)
+        }
+        val conversationText = buildString {
+            if (chatHistory.isNotEmpty()) {
+                appendLine("Recent Conversation History:")
+                chatHistory.takeLast(6).forEach { (role, msg) ->
+                    appendLine("${role.uppercase()}: ${msg.take(600)}")
+                }
+                appendLine()
+            }
+            appendLine("User Request: $userPrompt")
+        }
+
+        val raw = executeMainModelWithFallback(
+            systemInstructionText = systemText,
+            responseSchema = null,
+            promptContent = content { text(conversationText) }
+        )
+        raw.text
+    }
+
     private fun jsonArrayToList(arr: JSONArray?): List<String> {
         if (arr == null) return emptyList()
         return (0 until arr.length()).mapNotNull { idx ->
             arr.optString(idx).trim().takeIf { it.isNotBlank() }
         }
+    }
+
+    companion object {
+        const val FRIENDLY_ZD_ERROR = "ZD is having trouble connecting. Please try again."
     }
 }

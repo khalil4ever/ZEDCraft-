@@ -17,8 +17,9 @@ android {
     applicationId = "com.aistudio.zedcraft.ytgrow"
     minSdk = 24
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.1.0"
+    // Easy-to-update release version numbers (bump both for each new GitHub APK release):
+    versionCode = 3
+    versionName = "1.2.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -116,6 +117,7 @@ dependencies {
   implementation(libs.googleid)
   implementation(libs.play.services.auth)
   implementation(libs.firebase.appcheck.recaptcha)
+  implementation(libs.firebase.appcheck.playintegrity)
   implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

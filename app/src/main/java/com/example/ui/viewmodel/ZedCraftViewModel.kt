@@ -1,1284 +1,1775 @@
 package com.example.ui.viewmodel
 
-import android.content.Context
+import android.app.Application
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.CreationExtras
-import com.example.R
-import com.example.ai.DescriptionOptimizationResult
-import com.example.ai.TagsGenerationResult
-import com.example.ai.ThumbnailAbResult
-import com.example.ai.ThumbnailScoreResult
-import com.example.ai.TitleOptimizationResult
-import com.example.ai.VideoIdeasResult
-import com.example.ai.ZdAssistantResponse
-import com.example.ai.ZdSkillModule
-import com.example.ai.ZdSkillPack
-import com.example.ai.ZedCraftAiConfig
+import com.example.BuildConfig
+import com.example.ai.ThumbnailVisionResponse
+import com.example.ai.TitleOptimizerResponse
+import com.example.ai.TitleSuggestionItem
 import com.example.ai.ZedCraftAiService
-import com.example.data.local.LocalSavedWorkEntity
-import com.example.data.local.YouTubeCacheDao
-import com.example.data.local.ZedCraftLocalDatabase
-import com.example.data.model.CompetitorChannel
-import com.example.data.model.ConnectedChannel
-import com.example.data.model.SavedWorkItem
-import com.example.data.model.WorkType
-import com.example.data.model.ZdChatMessage
+import com.example.data.local.ChecklistItemEntity
+import com.example.data.local.SavedIdeaEntity
+import com.example.data.local.VideoRevisionBackupEntity
+import com.example.data.local.YouTubeCacheDatabase
+import com.example.data.local.ZdChatMessageEntity
+import com.example.data.remote.ApkDownloadProgress
 import com.example.data.remote.ChannelHealthReport
+import com.example.data.remote.CompetitorComparison
+import com.example.data.remote.GitHubReleaseInfo
 import com.example.data.remote.GitHubUpdateClient
-import com.example.data.remote.GitHubUpdateInfo
 import com.example.data.remote.KeywordResearchResult
-import com.example.data.remote.VideoSeoAuditResult
+import com.example.data.remote.VideoDeepAudit
 import com.example.data.remote.YouTubeApiClient
-import com.example.data.remote.YtAnalyticsOverview
+import com.example.data.remote.YouTubeApiException
+import com.example.data.remote.YouTubeWriteOutcome
+import com.example.data.remote.YtAnalyticsSummary
 import com.example.data.remote.YtChannelDetail
+import com.example.data.remote.YtCommentItem
 import com.example.data.remote.YtVideoDetail
-import com.example.data.repository.ZedCraftFirestoreRepository
-import com.google.firebase.Firebase
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.auth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
-import java.net.URL
-import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.Dispatchers
+import com.example.ui.screens.YouTubeOAuthHelper
+import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class PrimaryTab(val label: String) {
-    HOME("Home"),
-    OPTIMIZE("Optimize"),
-    RESEARCH("Research"),
-    ZD("ZD"),
-    PROFILE("Profile")
+    Home("Home"),
+    Optimize("Optimize"),
+    Research("Research"),
+    Zd("ZD"),
+    Profile("Profile")
 }
 
-sealed interface DetailDestination {
-    data object None : DetailDestination
-    data class VideoAnalyzerAndAudit(val videoIdOrUrl: String = "") : DetailDestination
-    data object ChannelHealthCheck : DetailDestination
-    data object SetupGuide : DetailDestination
-    data object PrivacyAndTerms : DetailDestination
-    data object GitHubUpdater : DetailDestination
-    data class SavedWorkDetail(val item: SavedWorkItem) : DetailDestination
+enum class OptimizeSubTab(val label: String) {
+    Title("Title"),
+    Description("Description"),
+    Tags("Tags"),
+    Thumbnail("Thumbnail"),
+    ScriptAndHook("Script & Hook"),
+    ShortsAndRemix("Shorts & Remix")
+}
+
+enum class ResearchSubTab(val label: String) {
+    Keywords("Keywords"),
+    TrendsAndIdeas("Trends & Ideas"),
+    Competitors("Competitors"),
+    Comments("Comments")
+}
+
+enum class DetailDestination(val title: String) {
+    VideoAnalyzer("Video Deep Analyzer"),
+    ChannelHealthAudit("Channel Health & Policy Audit"),
+    RevenueAndSponsorCalculator("Revenue & Sponsor Deal Calculator"),
+    LaunchChecklist("Pre-Publish & Growth Checklists"),
+    SavedVault("Saved Ideas & Templates Vault"),
+    Credits("Credits"),
+    PrivacyAndTerms("Privacy Policy & Terms")
 }
 
 data class ZedCraftUiState(
+    val isAppReadyForContent: Boolean = false,
+    val selectedTab: PrimaryTab = PrimaryTab.Home,
+    val selectedOptimizeSubTab: OptimizeSubTab = OptimizeSubTab.Title,
+    val selectedResearchSubTab: ResearchSubTab = ResearchSubTab.Keywords,
+    val activeDetailScreen: DetailDestination? = null,
     val isDarkTheme: Boolean = true,
-    val hasCompletedOnboarding: Boolean = false,
-    val isPublicGuestMode: Boolean = false,
-    val isSignedInWithGoogle: Boolean = false,
-    val userUid: String = "",
-    val userDisplayName: String = "",
-    val userEmail: String = "",
+    val showOnboardingSheet: Boolean = false,
+
+    // Connected Channel & Analytics State
+    val isApiKeyConfigured: Boolean = false,
     val oauthAccessToken: String? = null,
-    val isYouTubeApiKeyConfigured: Boolean = false,
-
-    // Navigation
-    val currentTab: PrimaryTab = PrimaryTab.HOME,
-    val optimizeSubTab: Int = 0, // 0: Thumbnail, 1: Title, 2: Description, 3: Tags
-    val researchSubTab: Int = 0, // 0: Keywords, 1: Trends, 2: Competitors, 3: Idea Finder
-    val zdSubTab: Int = 0,       // 0: Chat, 1: Skills Pack (12 skills)
-    val detailDestination: DetailDestination = DetailDestination.None,
-
-    // Connected Channel & Multi-Channel Switcher
-    val connectedChannels: List<ConnectedChannel> = emptyList(),
     val activeChannel: YtChannelDetail? = null,
     val activeChannelVideos: List<YtVideoDetail> = emptyList(),
-    val analyticsOverview: YtAnalyticsOverview? = null,
     val channelHealthReport: ChannelHealthReport? = null,
-    val isChannelLoading: Boolean = false,
-    val channelErrorMessage: String? = null,
+    val analyticsSummary: YtAnalyticsSummary? = null,
+    val isLoadingChannel: Boolean = false,
+    val channelError: String? = null,
 
-    // 1. Thumbnail Scorer & A/B Compare
-    val isAbCompareMode: Boolean = false,
-    val thumbnailBitmapA: Bitmap? = null,
-    val thumbnailBitmapB: Bitmap? = null,
-    val thumbnailVideoTitle: String = "",
-    val isScoringThumbnail: Boolean = false,
-    val thumbnailScoreResult: ThumbnailScoreResult? = null,
-    val thumbnailAbResult: ThumbnailAbResult? = null,
-    val thumbnailError: String? = null,
+    // Selected Video from "My Videos" for Direct Optimization & Live YouTube Updates
+    val selectedTargetVideo: YtVideoDetail? = null,
+    val customTitleDraft: String = "",
+    val customTitleScoreResult: TitleSuggestionItem? = null,
+    val isScoringCustomTitle: Boolean = false,
+    val isApplyingToYouTube: Boolean = false,
+    val applySuccessOutcome: YouTubeWriteOutcome? = null,
+    val applyError: String? = null,
+    val showPhoneVerifyDialog: Boolean = false,
 
-    // 2. Title Optimizer
-    val titleInput: String = "",
-    val titleNicheContext: String = "",
-    val isOptimizingTitle: Boolean = false,
-    val titleResult: TitleOptimizationResult? = null,
-    val titleError: String? = null,
+    // Video Deep Analyzer State
+    val inspectedVideoAudit: VideoDeepAudit? = null,
+    val inspectedVideoComments: List<YtCommentItem> = emptyList(),
+    val isLoadingVideoAudit: Boolean = false,
+    val videoAuditError: String? = null,
+    val videoAiCoachingSummary: String? = null,
+    val isGeneratingVideoCoaching: Boolean = false,
 
-    // 3. Description Optimizer
-    val descTitleInput: String = "",
-    val descExistingInput: String = "",
-    val descTranscriptInput: String = "",
-    val isOptimizingDescription: Boolean = false,
-    val descriptionResult: DescriptionOptimizationResult? = null,
-    val descriptionError: String? = null,
+    // Optimize Tab State
+    val optimizeTopicInput: String = "",
+    val optimizeNicheInput: String = "Tech & Creator Economy",
+    val optimizeTitleInput: String = "",
+    val optimizeDescInput: String = "",
+    val optimizeTagsInput: String = "",
+    val titleOptimizerResult: TitleOptimizerResponse? = null,
+    val selectedThumbnailBitmap: Bitmap? = null,
+    val secondThumbnailBitmap: Bitmap? = null,
+    val thumbnailVisionResult: ThumbnailVisionResponse? = null,
+    val scriptOutputMarkdown: String? = null,
+    val shortsPlanMarkdown: String? = null,
+    val isOptimizing: Boolean = false,
+    val optimizeError: String? = null,
 
-    // 4. Tags & Hashtags Generator
-    val tagsTopicInput: String = "",
-    val isGeneratingTags: Boolean = false,
-    val tagsResult: TagsGenerationResult? = null,
-    val tagsError: String? = null,
+    // Research Tab State
+    val keywordSeedInput: String = "",
+    val keywordResearchResult: KeywordResearchResult? = null,
+    val isResearchingKeywords: Boolean = false,
+    val researchError: String? = null,
+    val competitorInputA: String = "",
+    val competitorInputB: String = "",
+    val competitorComparison: CompetitorComparison? = null,
+    val isComparingCompetitors: Boolean = false,
+    val trendIdeasMarkdown: String? = null,
+    val isGeneratingTrendIdeas: Boolean = false,
+    val commentVideoUrlInput: String = "",
+    val commentList: List<YtCommentItem> = emptyList(),
+    val commentSentimentMarkdown: String? = null,
+    val isAnalyzingComments: Boolean = false,
 
-    // 5. Keyword Research
-    val keywordInput: String = "",
-    val isResearchingKeyword: Boolean = false,
-    val keywordResult: KeywordResearchResult? = null,
-    val keywordError: String? = null,
-
-    // 6. Video Analyzer & SEO Audit
-    val analyzedVideoInput: String = "",
-    val isAnalyzingVideo: Boolean = false,
-    val analyzedVideo: YtVideoDetail? = null,
-    val videoAuditResult: VideoSeoAuditResult? = null,
-    val videoAnalyzerError: String? = null,
-
-    // 7. Trend & Idea Finder
-    val selectedTrendRegion: String = "US",
-    val selectedTrendCategoryId: String = "0",
-    val isLoadingTrends: Boolean = false,
-    val trendingVideos: List<YtVideoDetail> = emptyList(),
-    val trendsError: String? = null,
-    val ideaNicheInput: String = "",
-    val isGeneratingIdeas: Boolean = false,
-    val videoIdeasResult: VideoIdeasResult? = null,
-    val ideasError: String? = null,
-
-    // 8. Competitor Tracking
-    val competitorInput: String = "",
-    val isAddingCompetitor: Boolean = false,
-    val trackedCompetitors: List<CompetitorChannel> = emptyList(),
-    val competitorError: String? = null,
-
-    // 9. ZD AI Assistant Chat
-    val activeZdSkill: ZdSkillModule = ZdSkillPack.skills.first(),
-    val zdInputText: String = "",
+    // ZD Assistant State
     val isZdThinking: Boolean = false,
-    val zdChatMessages: List<ZdChatMessage> = emptyList(),
-    val zdLatestResponse: ZdAssistantResponse? = null,
     val zdError: String? = null,
+    val lastFailedZdPrompt: String? = null,
 
-    // 10. Saved Work & History
-    val savedWorkItems: List<SavedWorkItem> = emptyList(),
-    val selectedCompareItemA: SavedWorkItem? = null,
-    val selectedCompareItemB: SavedWorkItem? = null,
+    // Revenue Calculator State
+    val calcMonthlyViews: Long = 150_000L,
+    val calcNicheRpmUsd: Double = 6.50,
+    val calcShortsViews: Long = 250_000L,
+    val calcAvgViewsPerVideo: Long = 25_000L,
 
-    // 11. Background App Updates (Hidden Repository)
-    val isCheckingGitHubUpdate: Boolean = false,
-    val githubUpdateInfo: GitHubUpdateInfo? = null,
-    val githubUpdateError: String? = null,
-
-    // Transient feedback snackbar/banner
-    val toastMessage: String? = null
+    // GitHub Auto-Update State
+    val githubRepoPath: String = GitHubUpdateClient.DEFAULT_GITHUB_REPO,
+    val isCheckingUpdate: Boolean = false,
+    val githubReleaseInfo: GitHubReleaseInfo? = null,
+    val updateCheckError: String? = null,
+    val showAutoUpdateDialog: Boolean = false,
+    val isDownloadingUpdate: Boolean = false,
+    val downloadProgressPercent: Int = 0,
+    val downloadedMb: Float = 0f,
+    val totalMb: Float = 0f,
+    val updateDownloadError: String? = null,
+    val downloadedApkFile: File? = null,
+    val showUnknownSourcesDialog: Boolean = false,
+    val pendingInstallAfterPermission: Boolean = false
 )
 
-class ZedCraftViewModel(
-    private val firestoreRepository: ZedCraftFirestoreRepository,
-    private val youTubeApiClient: YouTubeApiClient,
-    private val aiService: ZedCraftAiService,
-    private val cacheDao: YouTubeCacheDao,
-    private val gitHubUpdateClient: GitHubUpdateClient,
-    private val auth: FirebaseAuth = Firebase.auth
-) : ViewModel() {
+class ZedCraftViewModel(application: Application) : AndroidViewModel(application) {
+    private val db = YouTubeCacheDatabase.getInstance(application)
+    private val cacheDao = db.dao()
+    val youTubeApi = YouTubeApiClient(cacheDao)
+    val aiService = ZedCraftAiService()
+    val gitHubUpdateClient = GitHubUpdateClient(application.applicationContext)
+
+    private var activeDownloadJob: Job? = null
+    private var networkCallbackRegistered = false
 
     private val _uiState = MutableStateFlow(
         ZedCraftUiState(
-            isYouTubeApiKeyConfigured = youTubeApiClient.isApiKeyConfigured()
+            isApiKeyConfigured = youTubeApi.isApiKeyConfigured()
         )
     )
     val uiState: StateFlow<ZedCraftUiState> = _uiState.asStateFlow()
 
-    val cachedItemsCount: StateFlow<Int> = cacheDao.observeCacheCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val savedIdeas: StateFlow<List<SavedIdeaEntity>> = cacheDao.observeSavedIdeas()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private var firestoreStreamsJob: Job? = null
+    val zdChatHistory: StateFlow<List<ZdChatMessageEntity>> = cacheDao.observeZdChatMessages()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-        val user = firebaseAuth.currentUser
-        if (user != null) {
-            _uiState.update {
-                it.copy(
-                    isSignedInWithGoogle = true,
-                    userUid = user.uid,
-                    userDisplayName = user.displayName ?: "ZEDCraft Creator",
-                    userEmail = user.email.orEmpty(),
-                    hasCompletedOnboarding = true
-                )
-            }
-            startFirestoreUserStreams(user.uid, user.displayName ?: "ZEDCraft Creator", user.email.orEmpty())
-        } else {
-            firestoreStreamsJob?.cancel()
-            _uiState.update {
-                it.copy(
-                    isSignedInWithGoogle = false,
-                    userUid = "",
-                    userDisplayName = "",
-                    userEmail = "",
-                    oauthAccessToken = null,
-                    connectedChannels = emptyList(),
-                    trackedCompetitors = emptyList()
-                )
-            }
-            observeLocalSavedWorkWhenSignedOut()
-        }
-    }
+    val checklistItems: StateFlow<List<ChecklistItemEntity>> = cacheDao.observeChecklistItems()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val videoRevisionBackups: StateFlow<List<VideoRevisionBackupEntity>> = cacheDao.observeVideoRevisionBackups()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        auth.addAuthStateListener(authStateListener)
+        initializeAppAndSplash()
+        registerNetworkReconnectUpdateCheck()
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        auth.removeAuthStateListener(authStateListener)
-        firestoreStreamsJob?.cancel()
+    private fun initializeAppAndSplash() {
+        viewModelScope.launch {
+            val startTimeMs = System.currentTimeMillis()
+
+            // Clean up any old downloaded APKs after update
+            runCatching { gitHubUpdateClient.cleanupOldApks() }
+
+            // Seed default checklist & initial ZD welcome message
+            runCatching { seedDefaultChecklistIfEmpty() }
+            runCatching { seedWelcomeZdMessageIfEmpty() }
+
+            // Attempt automatic OAuth session restore (capped at 1.8s during splash so it never blocks)
+            val appContext = getApplication<Application>().applicationContext
+            val savedToken = YouTubeOAuthHelper.getSavedAccessToken(appContext)
+            if (!savedToken.isNullOrBlank()) {
+                val refreshedToken = withTimeoutOrNull(1800L) {
+                    YouTubeOAuthHelper.refreshAccessTokenSilently(appContext)
+                } ?: savedToken
+                _uiState.update { it.copy(oauthAccessToken = refreshedToken) }
+                // Kick off channel load in background
+                connectWithOAuthToken(refreshedToken)
+            }
+
+            // Trigger silent GitHub auto-update check on launch
+            checkForGitHubUpdates(isSilent = true)
+
+            // Ensure the custom 3D splash screen stays visible for at least 2.3s for a smooth entrance
+            val elapsedMs = System.currentTimeMillis() - startTimeMs
+            val remainingMs = (2350L - elapsedMs).coerceAtLeast(0L)
+            if (remainingMs > 0L) {
+                delay(remainingMs)
+            }
+
+            _uiState.update { it.copy(isAppReadyForContent = true) }
+        }
     }
 
-    private fun startFirestoreUserStreams(uid: String, displayName: String, email: String) {
-        firestoreStreamsJob?.cancel()
-        firestoreStreamsJob = viewModelScope.launch {
-            firestoreRepository.upsertUserProfile(displayName = displayName, email = email)
-
-            launch {
-                firestoreRepository.observeConnectedChannels()
-                    .catch { e -> unwrapAndIgnoreIfCancelled(e) }
-                    .collect { channels ->
-                        _uiState.update { it.copy(connectedChannels = channels) }
-                        if (_uiState.value.activeChannel == null && channels.isNotEmpty()) {
-                            val first = channels.first()
-                            connectChannelByQuery(first.channelId, isFromSavedChannel = true)
+    private fun registerNetworkReconnectUpdateCheck() {
+        val appContext = getApplication<Application>().applicationContext
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+        runCatching {
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(
+                request,
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        super.onAvailable(network)
+                        if (gitHubUpdateClient.shouldRunSilentCheck()) {
+                            checkForGitHubUpdates(isSilent = true)
                         }
                     }
-            }
-
-            launch {
-                firestoreRepository.observeSavedWork()
-                    .catch { e -> unwrapAndIgnoreIfCancelled(e) }
-                    .collect { items ->
-                        _uiState.update { it.copy(savedWorkItems = items) }
-                    }
-            }
-
-            launch {
-                firestoreRepository.observeCompetitors()
-                    .catch { e -> unwrapAndIgnoreIfCancelled(e) }
-                    .collect { competitors ->
-                        _uiState.update { it.copy(trackedCompetitors = competitors) }
-                    }
-            }
-
-            launch {
-                firestoreRepository.observeZdChats()
-                    .catch { e -> unwrapAndIgnoreIfCancelled(e) }
-                    .collect { messages ->
-                        _uiState.update { it.copy(zdChatMessages = messages) }
-                    }
-            }
-        }
-    }
-
-    private fun observeLocalSavedWorkWhenSignedOut() {
-        viewModelScope.launch {
-            cacheDao.observeLocalSavedWork().collect { localItems ->
-                if (!_uiState.value.isSignedInWithGoogle) {
-                    val mapped = localItems.map { local ->
-                        SavedWorkItem(
-                            id = "local_${local.localId}",
-                            userId = "guest",
-                            workType = local.workType,
-                            title = local.title,
-                            subtitle = local.subtitle,
-                            score = local.score,
-                            payloadJson = local.payloadJson,
-                            channelId = local.channelId
-                        )
-                    }
-                    _uiState.update { it.copy(savedWorkItems = mapped) }
                 }
-            }
+            )
+            networkCallbackRegistered = true
         }
     }
 
-    private fun unwrapAndIgnoreIfCancelled(error: Throwable) {
-        val firestoreError = generateSequence(error) { it.cause }
-            .filterIsInstance<FirebaseFirestoreException>()
-            .firstOrNull()
-        if (firestoreError == null && error is CancellationException) throw error
+    fun selectTab(tab: PrimaryTab) {
+        _uiState.update { it.copy(selectedTab = tab, activeDetailScreen = null) }
     }
 
-    // --- Navigation & Shell State ---
-    fun selectPrimaryTab(tab: PrimaryTab) {
-        _uiState.update { it.copy(currentTab = tab, detailDestination = DetailDestination.None) }
-        if (tab == PrimaryTab.RESEARCH && _uiState.value.researchSubTab == 1 && _uiState.value.trendingVideos.isEmpty()) {
-            loadTrendingVideos()
-        }
-    }
-
-    fun selectOptimizeSubTab(index: Int) {
-        _uiState.update { it.copy( currentTab = PrimaryTab.OPTIMIZE, optimizeSubTab = index.coerceIn(0, 3), detailDestination = DetailDestination.None) }
-    }
-
-    fun selectResearchSubTab(index: Int) {
-        _uiState.update { it.copy(currentTab = PrimaryTab.RESEARCH, researchSubTab = index.coerceIn(0, 3), detailDestination = DetailDestination.None) }
-        if (index == 1 && _uiState.value.trendingVideos.isEmpty()) {
-            loadTrendingVideos()
-        }
-    }
-
-    fun selectZdSubTab(index: Int) {
-        _uiState.update { it.copy(currentTab = PrimaryTab.ZD, zdSubTab = index.coerceIn(0, 1), detailDestination = DetailDestination.None) }
-    }
-
-    fun openDetail(destination: DetailDestination) {
-        _uiState.update { it.copy(detailDestination = destination) }
-        if (destination is DetailDestination.VideoAnalyzerAndAudit && destination.videoIdOrUrl.isNotBlank()) {
-            _uiState.update { it.copy(analyzedVideoInput = destination.videoIdOrUrl) }
-            analyzeAndAuditVideo(destination.videoIdOrUrl)
-        }
-    }
-
-    fun closeDetail() {
-        _uiState.update { it.copy(detailDestination = DetailDestination.None) }
-    }
-
-    fun toggleDarkTheme() {
-        _uiState.update { it.copy(isDarkTheme = !it.isDarkTheme) }
-    }
-
-    fun enterPublicToolsWithoutConnecting() {
+    fun selectOptimizeSubTab(subTab: OptimizeSubTab) {
         _uiState.update {
             it.copy(
-                hasCompletedOnboarding = true,
-                isPublicGuestMode = true,
-                currentTab = PrimaryTab.OPTIMIZE
+                selectedOptimizeSubTab = subTab,
+                applySuccessOutcome = null,
+                applyError = null
             )
         }
     }
 
-    fun showToast(msg: String?) {
-        _uiState.update { it.copy(toastMessage = msg) }
+    fun selectResearchSubTab(subTab: ResearchSubTab) {
+        _uiState.update { it.copy(selectedResearchSubTab = subTab) }
     }
 
-    // --- Channel Authorization & Multi-Channel Connection ---
-    fun onYouTubeOAuthTokenReceived(accessToken: String) {
-        _uiState.update { it.copy(oauthAccessToken = accessToken, isChannelLoading = true, channelErrorMessage = null) }
+    fun openDetailScreen(destination: DetailDestination) {
+        _uiState.update { it.copy(activeDetailScreen = destination) }
+    }
+
+    fun navigateBackFromDetail(): Boolean {
+        if (_uiState.value.activeDetailScreen != null) {
+            _uiState.update { it.copy(activeDetailScreen = null) }
+            return true
+        }
+        if (_uiState.value.selectedTab != PrimaryTab.Home) {
+            _uiState.update { it.copy(selectedTab = PrimaryTab.Home) }
+            return true
+        }
+        return false
+    }
+
+    fun toggleTheme(isDark: Boolean) {
+        _uiState.update { it.copy(isDarkTheme = isDark) }
+    }
+
+    fun setShowOnboardingSheet(show: Boolean) {
+        _uiState.update { it.copy(showOnboardingSheet = show) }
+    }
+
+    fun refreshApiKeyStatus() {
+        _uiState.update { it.copy(isApiKeyConfigured = youTubeApi.isApiKeyConfigured()) }
+    }
+
+    /**
+     * Connects the user's YouTube channel using a real OAuth 2.0 Bearer access token
+     * from Google Identity Services (`AuthorizationClient`).
+     */
+    fun connectWithOAuthToken(accessToken: String) {
+        val appContext = getApplication<Application>().applicationContext
+        YouTubeOAuthHelper.saveAccessToken(appContext, accessToken)
+
+        _uiState.update {
+            it.copy(
+                oauthAccessToken = accessToken,
+                isLoadingChannel = true,
+                channelError = null
+            )
+        }
         viewModelScope.launch {
-            val result = youTubeApiClient.fetchMyAuthorizedChannels(accessToken)
-            result.onSuccess { channels ->
-                if (channels.isNotEmpty()) {
-                    val primary = channels.first()
-                    setActiveChannelAndLoadTelemetry(primary, isOAuth = true)
-                    channels.forEach { ch ->
-                        if (_uiState.value.isSignedInWithGoogle) {
-                            firestoreRepository.saveConnectedChannel(
-                                ConnectedChannel(
-                                    channelId = ch.channelId,
-                                    title = ch.title,
-                                    handle = ch.handle,
-                                    thumbnailUrl = ch.thumbnailUrl,
-                                    subscriberCount = ch.subscriberCount,
-                                    viewCount = ch.viewCount,
-                                    videoCount = ch.videoCount,
-                                    healthScore = 85,
-                                    isOAuthConnected = true
-                                )
-                            )
-                        }
-                    }
-                    showToast("Connected ${primary.title} via Google OAuth 2.0!")
+            val myChannelsResult = youTubeApi.fetchMyAuthorizedChannels(accessToken)
+            myChannelsResult.onSuccess { channels ->
+                val primary = channels.firstOrNull()
+                if (primary != null) {
+                    YouTubeOAuthHelper.saveAccessToken(appContext, accessToken, primary.channelId)
+                    loadChannelDashboardData(primary, accessToken)
                 } else {
                     _uiState.update {
                         it.copy(
-                            isChannelLoading = false,
-                            channelErrorMessage = "No YouTube channel was found on this Google account. You can connect any channel by @handle or Channel ID below."
+                            isLoadingChannel = false,
+                            channelError = "No YouTube channel was found on the selected Google account."
                         )
                     }
                 }
             }.onFailure { err ->
+                Log.w(TAG, "OAuth channel fetch failed", err)
                 _uiState.update {
                     it.copy(
-                        isChannelLoading = false,
-                        channelErrorMessage = err.localizedMessage ?: "Failed to load authorized YouTube channel."
+                        isLoadingChannel = false,
+                        channelError = err.localizedMessage ?: "Failed to load your YouTube channel."
                     )
                 }
             }
         }
     }
 
-    fun connectChannelByQuery(queryOrHandleOrUrl: String, isFromSavedChannel: Boolean = false) {
-        val clean = queryOrHandleOrUrl.trim()
-        if (clean.isBlank()) {
-            _uiState.update { it.copy(channelErrorMessage = "Enter a YouTube @handle, Channel ID (UC...), or video URL.") }
+    /**
+     * Connects any public YouTube channel by @handle, Channel ID (`UC...`), video URL, or name.
+     */
+    fun connectChannelByInput(query: String, forceRefresh: Boolean = false) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(channelError = "Please enter a @handle, Channel ID, or YouTube video URL.") }
             return
         }
-        _uiState.update { it.copy(isChannelLoading = true, channelErrorMessage = null) }
+        _uiState.update {
+            it.copy(
+                isLoadingChannel = true,
+                channelError = null,
+                isApiKeyConfigured = youTubeApi.isApiKeyConfigured()
+            )
+        }
         viewModelScope.launch {
             val token = _uiState.value.oauthAccessToken
-            val result = youTubeApiClient.lookupChannel(clean, token, forceRefresh = !isFromSavedChannel)
+            val result = youTubeApi.lookupChannel(trimmed, token, forceRefresh)
             result.onSuccess { channel ->
-                setActiveChannelAndLoadTelemetry(channel, isOAuth = false)
+                loadChannelDashboardData(channel, token, forceRefresh)
             }.onFailure { err ->
                 _uiState.update {
                     it.copy(
-                        isChannelLoading = false,
-                        channelErrorMessage = err.localizedMessage ?: "Could not connect channel."
+                        isLoadingChannel = false,
+                        channelError = err.localizedMessage ?: "Could not find channel '$trimmed'."
                     )
                 }
             }
         }
     }
 
-    private suspend fun setActiveChannelAndLoadTelemetry(channel: YtChannelDetail, isOAuth: Boolean) {
-        val token = _uiState.value.oauthAccessToken
-        val recentVideos = youTubeApiClient.fetchChannelRecentVideos(
-            channel = channel,
-            maxResults = 25,
-            oauthAccessToken = token
-        ).getOrDefault(emptyList())
-
-        val healthReport = youTubeApiClient.buildChannelHealthReport(channel, recentVideos)
-        val analyticsOverview = youTubeApiClient.fetchChannelAnalytics(
-            channel = channel,
-            recentVideos = recentVideos,
-            oauthAccessToken = if (isOAuth) token else null,
-            daysRange = 28
-        )
-
-        _uiState.update {
-            it.copy(
-                activeChannel = channel,
-                activeChannelVideos = recentVideos,
-                channelHealthReport = healthReport,
-                analyticsOverview = analyticsOverview,
-                isChannelLoading = false,
-                channelErrorMessage = null,
-                hasCompletedOnboarding = true
-            )
-        }
-
-        if (_uiState.value.isSignedInWithGoogle) {
-            firestoreRepository.saveConnectedChannel(
-                ConnectedChannel(
-                    channelId = channel.channelId,
-                    title = channel.title,
-                    handle = channel.handle,
-                    thumbnailUrl = channel.thumbnailUrl,
-                    subscriberCount = channel.subscriberCount,
-                    viewCount = channel.viewCount,
-                    videoCount = channel.videoCount,
-                    healthScore = healthReport.overallHealthScore,
-                    isOAuthConnected = isOAuth
-                )
-            )
-            firestoreRepository.upsertUserProfile(
-                displayName = _uiState.value.userDisplayName.ifBlank { channel.title },
-                email = _uiState.value.userEmail,
-                activeChannelId = channel.channelId,
-                activeChannelTitle = channel.title
-            )
-        }
-    }
-
-    fun switchActiveChannel(connectedChannel: ConnectedChannel) {
-        connectChannelByQuery(connectedChannel.channelId, isFromSavedChannel = false)
-    }
-
-    fun disconnectChannel(channelId: String) {
-        viewModelScope.launch {
-            if (_uiState.value.isSignedInWithGoogle) {
-                firestoreRepository.removeConnectedChannel(channelId)
-            }
-            if (_uiState.value.activeChannel?.channelId == channelId) {
-                _uiState.update {
-                    it.copy(
-                        activeChannel = null,
-                        activeChannelVideos = emptyList(),
-                        analyticsOverview = null,
-                        channelHealthReport = null
-                    )
-                }
-            }
-            showToast("Channel disconnected.")
-        }
-    }
-
-    // --- 1. Thumbnail Scorer & A/B Compare ---
-    fun setAbCompareMode(enabled: Boolean) {
-        _uiState.update { it.copy(isAbCompareMode = enabled, thumbnailError = null) }
-    }
-
-    fun setThumbnailVideoTitle(title: String) {
-        _uiState.update { it.copy(thumbnailVideoTitle = title) }
-    }
-
-    fun loadBitmapFromUri(context: Context, uri: Uri, isSlotB: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
-                } ?: throw IllegalArgumentException("Unable to decode selected image.")
-            }.onSuccess { bmp ->
-                _uiState.update {
-                    if (isSlotB) it.copy(thumbnailBitmapB = bmp, thumbnailError = null)
-                    else it.copy(thumbnailBitmapA = bmp, thumbnailError = null)
-                }
-            }.onFailure { err ->
-                _uiState.update { it.copy(thumbnailError = err.localizedMessage ?: "Failed to load image.") }
-            }
-        }
-    }
-
-    fun loadThumbnailFromVideoUrlOrDetail(videoUrlOrId: String, titleIfKnown: String = "", isSlotB: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(isScoringThumbnail = true, thumbnailError = null) }
-            runCatching {
-                val vid = youTubeApiClient.extractVideoId(videoUrlOrId)
-                    ?: throw IllegalArgumentException("Enter a valid YouTube video URL or 11-character video ID.")
-                val urlsToTry = listOf(
-                    "https://i.ytimg.com/vi/$vid/maxresdefault.jpg",
-                    "https://i.ytimg.com/vi/$vid/hqdefault.jpg"
-                )
-                var loadedBmp: Bitmap? = null
-                for (u in urlsToTry) {
-                    val bmp = runCatching {
-                        URL(u).openStream().use { BitmapFactory.decodeStream(it) }
-                    }.getOrNull()
-                    if (bmp != null) {
-                        loadedBmp = bmp
-                        break
-                    }
-                }
-                loadedBmp ?: throw IllegalStateException("Could not download thumbnail for video $vid.")
-            }.onSuccess { bmp ->
-                _uiState.update {
-                    it.copy(
-                        isScoringThumbnail = false,
-                        thumbnailBitmapA = if (isSlotB) it.thumbnailBitmapA else bmp,
-                        thumbnailBitmapB = if (isSlotB) bmp else it.thumbnailBitmapB,
-                        thumbnailVideoTitle = if (titleIfKnown.isNotBlank()) titleIfKnown else it.thumbnailVideoTitle
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isScoringThumbnail = false,
-                        thumbnailError = err.localizedMessage ?: "Failed to fetch YouTube thumbnail."
-                    )
-                }
-            }
-        }
-    }
-
-    fun runThumbnailScorer() {
-        val state = _uiState.value
-        val bmpA = state.thumbnailBitmapA
-        if (bmpA == null) {
-            _uiState.update { it.copy(thumbnailError = "Select a thumbnail image from your device, connected videos, or a YouTube link first.") }
-            return
-        }
-
-        if (state.isAbCompareMode) {
-            val bmpB = state.thumbnailBitmapB
-            if (bmpB == null) {
-                _uiState.update { it.copy(thumbnailError = "Select Thumbnail B to run a head-to-head A/B comparison.") }
-                return
-            }
-            _uiState.update { it.copy(isScoringThumbnail = true, thumbnailError = null) }
-            viewModelScope.launch {
-                aiService.compareThumbnailsAb(bmpA, bmpB, state.thumbnailVideoTitle)
-                    .onSuccess { res ->
-                        _uiState.update { it.copy(isScoringThumbnail = false, thumbnailAbResult = res) }
-                        persistSavedWork(
-                            workType = WorkType.AB_COMPARE,
-                            title = state.thumbnailVideoTitle.ifBlank { "Thumbnail A/B Comparison" },
-                            subtitle = "Winner: Thumbnail ${res.winner} (${res.scoreA} vs ${res.scoreB})",
-                            score = maxOf(res.scoreA, res.scoreB),
-                            payloadJson = JSONObject().apply {
-                                put("winner", res.winner)
-                                put("scoreA", res.scoreA)
-                                put("scoreB", res.scoreB)
-                                put("verdict", res.headlineVerdict)
-                            }.toString()
-                        )
-                    }
-                    .onFailure { err ->
-                        _uiState.update {
-                            it.copy(
-                                isScoringThumbnail = false,
-                                thumbnailError = err.localizedMessage ?: "Thumbnail A/B comparison failed."
-                            )
-                        }
-                    }
-            }
-        } else {
-            _uiState.update { it.copy(isScoringThumbnail = true, thumbnailError = null) }
-            viewModelScope.launch {
-                aiService.scoreThumbnailWithVision(
-                    bitmap = bmpA,
-                    pairedVideoTitle = state.thumbnailVideoTitle,
-                    nicheContext = state.activeChannel?.title.orEmpty()
-                ).onSuccess { res ->
-                    _uiState.update { it.copy(isScoringThumbnail = false, thumbnailScoreResult = res) }
-                    persistSavedWork(
-                        workType = WorkType.THUMBNAIL_SCORE,
-                        title = state.thumbnailVideoTitle.ifBlank { "Thumbnail Vision Analysis" },
-                        subtitle = "AI Estimate: ${res.overallScore}/100 • Synergy: ${res.titleSynergyScore}/100",
-                        score = res.overallScore,
-                        payloadJson = JSONObject().apply {
-                            put("overallScore", res.overallScore)
-                            put("titleSynergyScore", res.titleSynergyScore)
-                            put("verdict", res.titleSynergyVerdict)
-                            put("fixes", res.actionableFixes.joinToString("\n• "))
-                        }.toString()
-                    )
-                }.onFailure { err ->
-                    _uiState.update {
-                        it.copy(
-                            isScoringThumbnail = false,
-                            thumbnailError = err.localizedMessage ?: "Thumbnail Vision scoring failed."
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // --- 2. Title Optimizer ---
-    fun updateTitleInputs(title: String, context: String = _uiState.value.titleNicheContext) {
-        _uiState.update { it.copy(titleInput = title, titleNicheContext = context, titleError = null) }
-    }
-
-    fun runTitleOptimizer() {
-        val state = _uiState.value
-        if (state.titleInput.isBlank()) {
-            _uiState.update { it.copy(titleError = "Please enter a video title to score and optimize.") }
-            return
-        }
-        _uiState.update { it.copy(isOptimizingTitle = true, titleError = null) }
-        viewModelScope.launch {
-            aiService.scoreAndOptimizeTitle(
-                rawTitle = state.titleInput,
-                videoContextOrNiche = state.titleNicheContext.ifBlank { state.activeChannel?.title.orEmpty() }
-            ).onSuccess { res ->
-                _uiState.update { it.copy(isOptimizingTitle = false, titleResult = res) }
-                persistSavedWork(
-                    workType = WorkType.TITLE_OPTIMIZER,
-                    title = res.originalTitle,
-                    subtitle = "Score: ${res.overallScore}/100 • Top Alternative: ${res.tenImprovedTitles.firstOrNull()?.title.orEmpty()}",
-                    score = res.overallScore,
-                    payloadJson = JSONObject().apply {
-                        put("originalTitle", res.originalTitle)
-                        put("overallScore", res.overallScore)
-                        put("topTitles", res.tenImprovedTitles.joinToString("\n") { "${it.score}/100: ${it.title}" })
-                    }.toString()
-                )
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isOptimizingTitle = false,
-                        titleError = err.localizedMessage ?: "Title optimization failed."
-                    )
-                }
-            }
-        }
-    }
-
-    // --- 3. Description & Chapters Optimizer ---
-    fun updateDescriptionInputs(title: String, existingDesc: String, transcript: String) {
-        _uiState.update {
-            it.copy(
-                descTitleInput = title,
-                descExistingInput = existingDesc,
-                descTranscriptInput = transcript,
-                descriptionError = null
-            )
-        }
-    }
-
-    fun runDescriptionOptimizer() {
-        val state = _uiState.value
-        if (state.descTitleInput.isBlank() && state.descExistingInput.isBlank()) {
-            _uiState.update { it.copy(descriptionError = "Enter a video title/topic or paste an existing description.") }
-            return
-        }
-        _uiState.update { it.copy(isOptimizingDescription = true, descriptionError = null) }
-        viewModelScope.launch {
-            aiService.optimizeDescriptionAndChapters(
-                videoTitleOrTopic = state.descTitleInput,
-                existingDescription = state.descExistingInput,
-                transcriptOrOutline = state.descTranscriptInput
-            ).onSuccess { res ->
-                _uiState.update { it.copy(isOptimizingDescription = false, descriptionResult = res) }
-                persistSavedWork(
-                    workType = WorkType.DESCRIPTION_OPTIMIZER,
-                    title = state.descTitleInput.ifBlank { "Optimized Description" },
-                    subtitle = res.firstTwoLinesHook.take(100),
-                    score = res.overallScore,
-                    payloadJson = JSONObject().apply {
-                        put("hook", res.firstTwoLinesHook)
-                        put("fullDescription", res.fullOptimizedDescription)
-                    }.toString()
-                )
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isOptimizingDescription = false,
-                        descriptionError = err.localizedMessage ?: "Description optimization failed."
-                    )
-                }
-            }
-        }
-    }
-
-    // --- 4. Tags & Hashtags Generator ---
-    fun updateTagsInput(topic: String) {
-        _uiState.update { it.copy(tagsTopicInput = topic, tagsError = null) }
-    }
-
-    fun runTagsGenerator() {
-        val topic = _uiState.value.tagsTopicInput.trim()
-        if (topic.isBlank()) {
-            _uiState.update { it.copy(tagsError = "Enter a video topic or title to generate tags and hashtags.") }
-            return
-        }
-        _uiState.update { it.copy(isGeneratingTags = true, tagsError = null) }
-        viewModelScope.launch {
-            // Pull real tags from top-ranking videos when API key is configured
-            val realRankingTags = if (youTubeApiClient.isApiKeyConfigured()) {
-                youTubeApiClient.performKeywordResearch(topic, _uiState.value.oauthAccessToken)
-                    .getOrNull()?.extractedTagsFromWinners.orEmpty()
-            } else emptyList()
-
-            aiService.generateTagsAndHashtags(topic, realRankingTags)
-                .onSuccess { res ->
-                    _uiState.update { it.copy(isGeneratingTags = false, tagsResult = res) }
-                    persistSavedWork(
-                        workType = WorkType.TAGS_GENERATOR,
-                        title = topic,
-                        subtitle = "${res.recommendedTags.size} tags (${res.totalCharacterCount}/500 chars) • ${res.threeBestHashtags.joinToString(" ")}",
-                        score = 94,
-                        payloadJson = JSONObject().apply {
-                            put("tags", res.recommendedTags.joinToString(", "))
-                            put("hashtags", res.threeBestHashtags.joinToString(" "))
-                        }.toString()
-                    )
-                }
-                .onFailure { err ->
-                    _uiState.update {
-                        it.copy(
-                            isGeneratingTags = false,
-                            tagsError = err.localizedMessage ?: "Tag generation failed."
-                        )
-                    }
-                }
-        }
-    }
-
-    // --- 5. Keyword Research (Real Data Only) ---
-    fun updateKeywordInput(keyword: String) {
-        _uiState.update { it.copy(keywordInput = keyword, keywordError = null) }
-    }
-
-    fun runKeywordResearch(forceRefresh: Boolean = false) {
-        val kw = _uiState.value.keywordInput.trim()
-        if (kw.isBlank()) {
-            _uiState.update { it.copy(keywordError = "Enter a keyword or search phrase to research.") }
-            return
-        }
-        _uiState.update { it.copy(isResearchingKeyword = true, keywordError = null) }
-        viewModelScope.launch {
-            youTubeApiClient.performKeywordResearch(kw, _uiState.value.oauthAccessToken, forceRefresh)
-                .onSuccess { res ->
-                    _uiState.update { it.copy(isResearchingKeyword = false, keywordResult = res) }
-                    persistSavedWork(
-                        workType = WorkType.KEYWORD_RESEARCH,
-                        title = res.keyword,
-                        subtitle = "Opportunity: ${res.opportunityScore}/100 • Demand: ${res.demandScore}/100 • Competition: ${res.competitionScore}/100",
-                        score = res.opportunityScore,
-                        payloadJson = JSONObject().apply {
-                            put("keyword", res.keyword)
-                            put("opportunityScore", res.opportunityScore)
-                            put("avgViews", res.avgViewsTopResults)
-                            put("relatedKeywords", res.relatedKeywords.joinToString(", "))
-                        }.toString()
-                    )
-                }
-                .onFailure { err ->
-                    _uiState.update {
-                        it.copy(
-                            isResearchingKeyword = false,
-                            keywordError = err.localizedMessage ?: "Keyword research failed."
-                        )
-                    }
-                }
-        }
-    }
-
-    // --- 6. Video Analyzer & SEO Audit ---
-    fun updateAnalyzedVideoInput(input: String) {
-        _uiState.update { it.copy(analyzedVideoInput = input, videoAnalyzerError = null) }
-    }
-
-    fun analyzeAndAuditVideo(videoIdOrUrl: String = _uiState.value.analyzedVideoInput) {
-        val clean = videoIdOrUrl.trim()
-        if (clean.isBlank()) {
-            _uiState.update { it.copy(videoAnalyzerError = "Paste a YouTube video link or 11-character video ID.") }
-            return
-        }
-        _uiState.update { it.copy(isAnalyzingVideo = true, videoAnalyzerError = null) }
-        viewModelScope.launch {
-            youTubeApiClient.fetchVideoById(clean, _uiState.value.oauthAccessToken)
-                .onSuccess { video ->
-                    val audit = youTubeApiClient.runVideoSeoAudit(video)
-                    _uiState.update {
-                        it.copy(
-                            isAnalyzingVideo = false,
-                            analyzedVideo = video,
-                            videoAuditResult = audit
-                        )
-                    }
-                    persistSavedWork(
-                        workType = WorkType.VIDEO_AUDIT,
-                        title = video.title,
-                        subtitle = "ZEDCraft Audit Score: ${audit.zedCraftScore}/100 • ${YouTubeApiClient.formatCompact(video.viewCount)} views",
-                        score = audit.zedCraftScore,
-                        payloadJson = JSONObject().apply {
-                            put("videoId", video.videoId)
-                            put("title", video.title)
-                            put("score", audit.zedCraftScore)
-                            put("todos", audit.prioritizedTodoList.joinToString("\n• "))
-                        }.toString()
-                    )
-                }
-                .onFailure { err ->
-                    _uiState.update {
-                        it.copy(
-                            isAnalyzingVideo = false,
-                            videoAnalyzerError = err.localizedMessage ?: "Failed to analyze video."
-                        )
-                    }
-                }
-        }
-    }
-
-    // --- 7. Trend & Idea Finder ---
-    fun updateTrendFilters(region: String, categoryId: String) {
-        _uiState.update {
-            it.copy(
-                selectedTrendRegion = region,
-                selectedTrendCategoryId = categoryId,
-                trendsError = null
-            )
-        }
-        loadTrendingVideos(region, categoryId, forceRefresh = true)
-    }
-
-    fun loadTrendingVideos(
-        region: String = _uiState.value.selectedTrendRegion,
-        categoryId: String = _uiState.value.selectedTrendCategoryId,
+    private suspend fun loadChannelDashboardData(
+        channel: YtChannelDetail,
+        oauthToken: String?,
         forceRefresh: Boolean = false
     ) {
-        _uiState.update { it.copy(isLoadingTrends = true, trendsError = null) }
+        val videosResult = youTubeApi.fetchChannelRecentVideos(
+            uploadsPlaylistId = channel.uploadsPlaylistId,
+            maxResults = 30,
+            oauthAccessToken = oauthToken,
+            forceRefresh = forceRefresh
+        )
+        val videos = videosResult.getOrDefault(emptyList())
+        val healthReport = youTubeApi.buildChannelHealthReport(channel, videos)
+
+        val analytics = if (!oauthToken.isNullOrBlank()) {
+            youTubeApi.fetchOwnerAnalyticsReport(oauthToken).getOrNull()
+        } else {
+            null
+        }
+
+        val currentTargetId = _uiState.value.selectedTargetVideo?.videoId
+        val selectedVideo = videos.firstOrNull { it.videoId == currentTargetId } ?: videos.firstOrNull()
+
+        _uiState.update { state ->
+            state.copy(
+                activeChannel = channel,
+                activeChannelVideos = videos,
+                selectedTargetVideo = selectedVideo,
+                optimizeTopicInput = if (state.optimizeTopicInput.isBlank() && selectedVideo != null) {
+                    selectedVideo.title
+                } else {
+                    state.optimizeTopicInput
+                },
+                optimizeTitleInput = if (state.optimizeTitleInput.isBlank() && selectedVideo != null) {
+                    selectedVideo.title
+                } else {
+                    state.optimizeTitleInput
+                },
+                optimizeDescInput = if (state.optimizeDescInput.isBlank() && selectedVideo != null) {
+                    selectedVideo.description
+                } else {
+                    state.optimizeDescInput
+                },
+                optimizeTagsInput = if (state.optimizeTagsInput.isBlank() && selectedVideo != null) {
+                    selectedVideo.tags.joinToString(", ")
+                } else {
+                    state.optimizeTagsInput
+                },
+                channelHealthReport = healthReport,
+                analyticsSummary = analytics,
+                isLoadingChannel = false,
+                channelError = null,
+                showOnboardingSheet = false
+            )
+        }
+    }
+
+    fun refreshActiveChannel() {
+        val current = _uiState.value.activeChannel ?: return
+        val token = _uiState.value.oauthAccessToken
+        _uiState.update { it.copy(isLoadingChannel = true, channelError = null) }
         viewModelScope.launch {
-            youTubeApiClient.fetchTrendingVideos(
-                regionCode = region,
-                videoCategoryId = categoryId,
-                oauthAccessToken = _uiState.value.oauthAccessToken,
-                forceRefresh = forceRefresh
-            ).onSuccess { list ->
-                _uiState.update { it.copy(isLoadingTrends = false, trendingVideos = list) }
-            }.onFailure { err ->
+            if (!token.isNullOrBlank() && current.isOAuthMine) {
+                val freshToken = YouTubeOAuthHelper.refreshAccessTokenSilently(getApplication()) ?: token
+                _uiState.update { it.copy(oauthAccessToken = freshToken) }
+                loadChannelDashboardData(current, freshToken, forceRefresh = true)
+            } else {
+                connectChannelByInput(current.channelId, forceRefresh = true)
+            }
+        }
+    }
+
+    fun disconnectChannel() {
+        YouTubeOAuthHelper.clearSavedAuth(getApplication())
+        _uiState.update {
+            it.copy(
+                oauthAccessToken = null,
+                activeChannel = null,
+                activeChannelVideos = emptyList(),
+                selectedTargetVideo = null,
+                channelHealthReport = null,
+                analyticsSummary = null,
+                channelError = null,
+                applySuccessOutcome = null,
+                applyError = null
+            )
+        }
+    }
+
+    fun setOAuthError(message: String) {
+        _uiState.update { it.copy(channelError = message, isLoadingChannel = false) }
+    }
+
+    /**
+     * Selects one of the user's uploaded videos from "My Videos" to optimize and apply changes to.
+     */
+    fun selectTargetVideoForOptimize(
+        video: YtVideoDetail,
+        subTab: OptimizeSubTab = _uiState.value.selectedOptimizeSubTab,
+        navigateToOptimize: Boolean = false,
+        autoRunOptimizer: Boolean = false
+    ) {
+        _uiState.update {
+            it.copy(
+                selectedTargetVideo = video,
+                selectedTab = if (navigateToOptimize) PrimaryTab.Optimize else it.selectedTab,
+                selectedOptimizeSubTab = subTab,
+                activeDetailScreen = if (navigateToOptimize) null else it.activeDetailScreen,
+                optimizeTopicInput = video.title,
+                optimizeTitleInput = video.title,
+                optimizeDescInput = video.description,
+                optimizeTagsInput = video.tags.joinToString(", "),
+                customTitleDraft = "",
+                customTitleScoreResult = null,
+                applySuccessOutcome = null,
+                applyError = null
+            )
+        }
+        if (autoRunOptimizer) {
+            runTitleDescTagsOptimizer()
+        }
+    }
+
+    fun updateCustomTitleDraft(value: String) {
+        _uiState.update {
+            it.copy(
+                customTitleDraft = value,
+                customTitleScoreResult = null
+            )
+        }
+    }
+
+    /**
+     * Scores a custom user-typed title out of 100 (clarity, curiosity, keywords, length, click appeal).
+     */
+    fun scoreCustomTitleDraft() {
+        val draft = _uiState.value.customTitleDraft.trim()
+        if (draft.length < 4) {
+            _uiState.update { it.copy(optimizeError = "Enter a custom title of at least 4 characters to score it.") }
+            return
+        }
+        _uiState.update { it.copy(isScoringCustomTitle = true, optimizeError = null) }
+        viewModelScope.launch {
+            val channelCtx = _uiState.value.activeChannel?.let {
+                "Channel: ${it.title} (${it.handle}), Subscribers: ${it.subscriberCount}"
+            } ?: "Niche: ${_uiState.value.optimizeNicheInput}"
+            val result = aiService.scoreSingleCustomTitle(
+                customTitle = draft,
+                niche = _uiState.value.optimizeNicheInput,
+                channelContext = channelCtx
+            )
+            result.onSuccess { scored ->
                 _uiState.update {
                     it.copy(
-                        isLoadingTrends = false,
-                        trendsError = err.localizedMessage ?: "Failed to load trending videos."
+                        isScoringCustomTitle = false,
+                        customTitleScoreResult = scored
+                    )
+                }
+            }.onFailure {
+                _uiState.update {
+                    it.copy(
+                        isScoringCustomTitle = false,
+                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
                     )
                 }
             }
         }
     }
 
-    fun updateIdeaNicheInput(niche: String) {
-        _uiState.update { it.copy(ideaNicheInput = niche, ideasError = null) }
+    fun clearApplyMessages() {
+        _uiState.update {
+            it.copy(
+                applySuccessOutcome = null,
+                applyError = null,
+                showPhoneVerifyDialog = false
+            )
+        }
     }
 
-    fun generateAiVideoIdeas() {
-        val state = _uiState.value
-        val niche = state.ideaNicheInput.trim().ifBlank { state.activeChannel?.title.orEmpty() }
-        if (niche.isBlank()) {
-            _uiState.update { it.copy(ideasError = "Enter your channel niche or topic to generate tailored video ideas.") }
+    private suspend fun getValidOAuthTokenForWrite(): String? {
+        val current = _uiState.value.oauthAccessToken
+        val refreshed = YouTubeOAuthHelper.refreshAccessTokenSilently(getApplication())
+        val finalToken = refreshed ?: current
+        if (!finalToken.isNullOrBlank()) {
+            _uiState.update { it.copy(oauthAccessToken = finalToken) }
+        }
+        return finalToken
+    }
+
+    /**
+     * Safely applies a new Title to the currently selected YouTube video (`videos.update`).
+     * Only changes `title` while preserving `description`, `tags`, `categoryId`, and `defaultLanguage`.
+     */
+    fun applyTitleToYouTube(videoId: String, newTitle: String) {
+        val trimmedTitle = newTitle.trim()
+        if (trimmedTitle.isBlank()) {
+            _uiState.update { it.copy(applyError = "Title cannot be empty.") }
             return
         }
-        _uiState.update { it.copy(isGeneratingIdeas = true, ideasError = null) }
+        _uiState.update {
+            it.copy(
+                isApplyingToYouTube = true,
+                applyError = null,
+                applySuccessOutcome = null
+            )
+        }
         viewModelScope.launch {
-            aiService.generateChannelVideoIdeas(
-                nicheOrTopic = niche,
-                channel = state.activeChannel,
-                topChannelVideos = state.activeChannelVideos.sortedByDescending { it.viewCount }.take(5),
-                trendingVideos = state.trendingVideos.take(5)
-            ).onSuccess { res ->
-                _uiState.update { it.copy(isGeneratingIdeas = false, videoIdeasResult = res) }
-                persistSavedWork(
-                    workType = WorkType.TREND_IDEA,
-                    title = "6 Video Ideas for $niche",
-                    subtitle = res.ideas.firstOrNull()?.title.orEmpty(),
-                    score = res.ideas.firstOrNull()?.opportunityScore ?: 90,
-                    payloadJson = JSONObject().apply {
-                        put("niche", niche)
-                        put("ideas", res.ideas.joinToString("\n\n") { "${it.title}\nThumbnail: ${it.thumbnailConcept}" })
-                    }.toString()
-                )
-            }.onFailure { err ->
+            val token = getValidOAuthTokenForWrite()
+            if (token.isNullOrBlank()) {
                 _uiState.update {
                     it.copy(
-                        isGeneratingIdeas = false,
-                        ideasError = err.localizedMessage ?: "Video idea generation failed."
+                        isApplyingToYouTube = false,
+                        applyError = "Please connect your YouTube channel first to apply changes to your live videos."
+                    )
+                }
+                return@launch
+            }
+
+            val result = youTubeApi.updateVideoSnippetSafely(
+                videoId = videoId,
+                oauthAccessToken = token,
+                newTitle = trimmedTitle
+            )
+            result.onSuccess { outcome ->
+                applyLocalVideoMetadataUpdate(outcome)
+            }.onFailure { err ->
+                Log.w(TAG, "applyTitleToYouTube failed", err)
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = err.localizedMessage ?: "Could not update video title on YouTube."
                     )
                 }
             }
         }
     }
 
-    // --- 8. Competitor Tracking ---
-    fun updateCompetitorInput(input: String) {
-        _uiState.update { it.copy(competitorInput = input, competitorError = null) }
-    }
-
-    fun addCompetitorChannel() {
-        val query = _uiState.value.competitorInput.trim()
-        if (query.isBlank()) {
-            _uiState.update { it.copy(competitorError = "Enter a public channel @handle, Channel ID, or video URL.") }
+    /**
+     * Safely applies an optimized Description (and optionally Tags) to the selected YouTube video.
+     */
+    fun applyDescriptionToYouTube(videoId: String, newDescription: String, newTags: List<String>? = null) {
+        if (newDescription.isBlank()) {
+            _uiState.update { it.copy(applyError = "Description cannot be empty.") }
             return
         }
-        _uiState.update { it.copy(isAddingCompetitor = true, competitorError = null) }
+        _uiState.update {
+            it.copy(
+                isApplyingToYouTube = true,
+                applyError = null,
+                applySuccessOutcome = null
+            )
+        }
+        viewModelScope.launch {
+            val token = getValidOAuthTokenForWrite()
+            if (token.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = "Please connect your YouTube channel first to apply changes to your live videos."
+                    )
+                }
+                return@launch
+            }
+
+            val result = youTubeApi.updateVideoSnippetSafely(
+                videoId = videoId,
+                oauthAccessToken = token,
+                newDescription = newDescription,
+                newTags = newTags
+            )
+            result.onSuccess { outcome ->
+                applyLocalVideoMetadataUpdate(outcome)
+            }.onFailure { err ->
+                Log.w(TAG, "applyDescriptionToYouTube failed", err)
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = err.localizedMessage ?: "Could not update video description on YouTube."
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Safely applies an optimized Tag list to the selected YouTube video.
+     */
+    fun applyTagsToYouTube(videoId: String, newTags: List<String>) {
+        if (newTags.isEmpty()) {
+            _uiState.update { it.copy(applyError = "Please add at least one tag before applying.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isApplyingToYouTube = true,
+                applyError = null,
+                applySuccessOutcome = null
+            )
+        }
+        viewModelScope.launch {
+            val token = getValidOAuthTokenForWrite()
+            if (token.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = "Please connect your YouTube channel first to apply changes to your live videos."
+                    )
+                }
+                return@launch
+            }
+
+            val result = youTubeApi.updateVideoSnippetSafely(
+                videoId = videoId,
+                oauthAccessToken = token,
+                newTags = newTags
+            )
+            result.onSuccess { outcome ->
+                applyLocalVideoMetadataUpdate(outcome)
+            }.onFailure { err ->
+                Log.w(TAG, "applyTagsToYouTube failed", err)
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = err.localizedMessage ?: "Could not update video tags on YouTube."
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Uploads the selected thumbnail Bitmap to YouTube using `thumbnails.set`.
+     * If YouTube rejects it because the channel isn't phone-verified, displays a friendly verification prompt.
+     */
+    fun applyThumbnailToYouTube(videoId: String) {
+        val bitmap = _uiState.value.selectedThumbnailBitmap
+        if (bitmap == null) {
+            _uiState.update { it.copy(applyError = "Please pick a thumbnail image first.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isApplyingToYouTube = true,
+                applyError = null,
+                applySuccessOutcome = null,
+                showPhoneVerifyDialog = false
+            )
+        }
+        viewModelScope.launch {
+            val token = getValidOAuthTokenForWrite()
+            if (token.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = "Please connect your YouTube channel first to upload custom thumbnails."
+                    )
+                }
+                return@launch
+            }
+
+            val result = youTubeApi.uploadCustomThumbnail(
+                videoId = videoId,
+                bitmap = bitmap,
+                oauthAccessToken = token
+            )
+            result.onSuccess { outcome ->
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applySuccessOutcome = outcome,
+                        applyError = null
+                    )
+                }
+            }.onFailure { err ->
+                Log.w(TAG, "applyThumbnailToYouTube failed", err)
+                val isUnverified = err is YouTubeApiException.UnverifiedChannelThumbnailException
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        showPhoneVerifyDialog = isUnverified,
+                        applyError = err.localizedMessage
+                            ?: "Could not upload custom thumbnail to YouTube."
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Restores the previous title, description, and tags saved locally before the last YouTube write.
+     */
+    fun undoLastVideoChange(videoId: String) {
+        _uiState.update {
+            it.copy(
+                isApplyingToYouTube = true,
+                applyError = null,
+                applySuccessOutcome = null
+            )
+        }
+        viewModelScope.launch {
+            val token = getValidOAuthTokenForWrite()
+            if (token.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = "Please connect your YouTube channel to restore the previous version."
+                    )
+                }
+                return@launch
+            }
+
+            val result = youTubeApi.restoreVideoSnippetFromBackup(videoId, token)
+            result.onSuccess { outcome ->
+                applyLocalVideoMetadataUpdate(outcome)
+            }.onFailure { err ->
+                Log.w(TAG, "undoLastVideoChange failed", err)
+                _uiState.update {
+                    it.copy(
+                        isApplyingToYouTube = false,
+                        applyError = err.localizedMessage ?: "Failed to restore previous video metadata."
+                    )
+                }
+            }
+        }
+    }
+
+    private fun applyLocalVideoMetadataUpdate(outcome: YouTubeWriteOutcome) {
+        _uiState.update { state ->
+            val updatedList = state.activeChannelVideos.map { v ->
+                if (v.videoId == outcome.videoId) {
+                    v.copy(
+                        title = outcome.updatedTitle.ifBlank { v.title },
+                        description = outcome.updatedDescription,
+                        tags = outcome.updatedTags
+                    )
+                } else {
+                    v
+                }
+            }
+            val updatedTarget = updatedList.firstOrNull { it.videoId == outcome.videoId }
+                ?: state.selectedTargetVideo
+            state.copy(
+                isApplyingToYouTube = false,
+                activeChannelVideos = updatedList,
+                selectedTargetVideo = updatedTarget,
+                optimizeTitleInput = updatedTarget?.title ?: state.optimizeTitleInput,
+                optimizeDescInput = updatedTarget?.description ?: state.optimizeDescInput,
+                optimizeTagsInput = updatedTarget?.tags?.joinToString(", ") ?: state.optimizeTagsInput,
+                applySuccessOutcome = outcome,
+                applyError = null
+            )
+        }
+    }
+
+    /**
+     * Inspects any YouTube video by URL or ID and opens the Video Deep Analyzer screen.
+     */
+    fun analyzeVideoDeeply(videoUrlOrId: String) {
+        val videoId = youTubeApi.extractVideoId(videoUrlOrId) ?: videoUrlOrId.trim()
+        if (videoId.isBlank()) {
+            _uiState.update { it.copy(videoAuditError = "Please enter a valid YouTube Video URL or 11-character Video ID.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                activeDetailScreen = DetailDestination.VideoAnalyzer,
+                isLoadingVideoAudit = true,
+                videoAuditError = null,
+                videoAiCoachingSummary = null
+            )
+        }
         viewModelScope.launch {
             val token = _uiState.value.oauthAccessToken
-            youTubeApiClient.lookupChannel(query, token)
-                .onSuccess { ch ->
-                    val recent = youTubeApiClient.fetchChannelRecentVideos(ch, 10, token).getOrDefault(emptyList())
-                    val recentAvg = if (recent.isNotEmpty()) recent.sumOf { it.viewCount } / recent.size else 0L
-                    val comp = CompetitorChannel(
-                        id = ch.channelId,
-                        userId = _uiState.value.userUid,
-                        channelId = ch.channelId,
-                        title = ch.title,
-                        handle = ch.handle,
-                        thumbnailUrl = ch.thumbnailUrl,
-                        subscriberCount = ch.subscriberCount,
-                        viewCount = ch.viewCount,
-                        videoCount = ch.videoCount,
-                        recentAvgViews = recentAvg
+            val videoResult = youTubeApi.fetchVideoById(videoId, token, forceRefresh = false)
+            videoResult.onSuccess { video ->
+                val medianViews = _uiState.value.activeChannelVideos
+                    .map { it.viewCount }
+                    .sorted()
+                    .let { sorted -> if (sorted.isNotEmpty()) sorted[sorted.size / 2] else 0L }
+
+                val audit = youTubeApi.auditVideoMetadata(video, medianViews)
+                val comments = youTubeApi.fetchVideoComments(video.videoId, maxResults = 35, oauthAccessToken = token)
+                    .getOrDefault(emptyList())
+
+                _uiState.update {
+                    it.copy(
+                        inspectedVideoAudit = audit,
+                        inspectedVideoComments = comments,
+                        isLoadingVideoAudit = false,
+                        videoAuditError = null
                     )
-                    if (_uiState.value.isSignedInWithGoogle) {
-                        firestoreRepository.addOrUpdateCompetitor(comp)
-                    } else {
-                        _uiState.update { state ->
-                            state.copy(
-                                trackedCompetitors = (state.trackedCompetitors.filterNot { it.channelId == comp.channelId } + comp)
-                                    .sortedByDescending { it.subscriberCount }
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingVideoAudit = false,
+                        videoAuditError = err.localizedMessage ?: "Failed to analyze video."
+                    )
+                }
+            }
+        }
+    }
+
+    fun generateAiCoachingForInspectedVideo() {
+        val audit = _uiState.value.inspectedVideoAudit ?: return
+        val v = audit.video
+        _uiState.update { it.copy(isGeneratingVideoCoaching = true) }
+        viewModelScope.launch {
+            val prompt = """
+                Perform a diagnostic review of this real YouTube video:
+                - Title: "${v.title}" (${v.title.length} chars)
+                - Views: ${v.viewCount}, Likes: ${v.likeCount}, Comments: ${v.commentCount}
+                - Engagement Rate: ${String.format("%.2f", v.engagementRatePercent)}%
+                - Duration: ${YouTubeApiClient.formatDuration(v.durationSeconds)} (Short=${v.isShort})
+                - Has Chapters: ${v.hasChapters} (${v.chapterCount} timestamps)
+                - Tags (${v.tags.size}): ${v.tags.take(15).joinToString(", ")}
+                - First 200 chars of Description: "${v.description.take(200)}"
+                - Overall SEO Score: ${audit.overallSeoScore}/100
+
+                Provide:
+                1. **Why It Performed This Way**: Specific packaging, hook, and topic analysis.
+                2. **3 High-CTR Replacement Titles**: Under 60 chars with curiosity gap.
+                3. **Thumbnail Repackaging Concept**: Exact visual layout + 3-word overlay text.
+                4. **Retention & Chapter Fix**: Concrete adjustment to lift average percentage viewed.
+            """.trimIndent()
+
+            val channelContext = buildActiveChannelContextString()
+            val response = aiService.askZdAssistant(
+                userPrompt = prompt,
+                channelContext = channelContext,
+                chatHistory = emptyList()
+            )
+            response.onSuccess { text ->
+                _uiState.update {
+                    it.copy(
+                        videoAiCoachingSummary = text,
+                        isGeneratingVideoCoaching = false
+                    )
+                }
+            }.onFailure {
+                _uiState.update {
+                    it.copy(
+                        videoAiCoachingSummary = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                        isGeneratingVideoCoaching = false
+                    )
+                }
+            }
+        }
+    }
+
+    // --- Optimize Tab Actions ---
+    fun updateOptimizeInputs(
+        topic: String = _uiState.value.optimizeTopicInput,
+        niche: String = _uiState.value.optimizeNicheInput,
+        title: String = _uiState.value.optimizeTitleInput,
+        description: String = _uiState.value.optimizeDescInput,
+        tags: String = _uiState.value.optimizeTagsInput
+    ) {
+        _uiState.update {
+            it.copy(
+                optimizeTopicInput = topic,
+                optimizeNicheInput = niche,
+                optimizeTitleInput = title,
+                optimizeDescInput = description,
+                optimizeTagsInput = tags,
+                optimizeError = null
+            )
+        }
+    }
+
+    fun runTitleDescTagsOptimizer() {
+        val state = _uiState.value
+        val targetVideo = state.selectedTargetVideo
+        val effectiveTopic = state.optimizeTopicInput.ifBlank {
+            state.optimizeTitleInput.ifBlank { targetVideo?.title.orEmpty() }
+        }
+        val effectiveTitle = state.optimizeTitleInput.ifBlank { targetVideo?.title.orEmpty() }
+        val effectiveDesc = state.optimizeDescInput.ifBlank { targetVideo?.description.orEmpty() }
+        val effectiveTags = state.optimizeTagsInput.ifBlank { targetVideo?.tags?.joinToString(", ").orEmpty() }
+
+        if (effectiveTopic.isBlank() && effectiveTitle.isBlank()) {
+            _uiState.update { it.copy(optimizeError = "Pick one of your videos above or enter a video topic/title first.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isOptimizing = true,
+                optimizeError = null,
+                optimizeTopicInput = effectiveTopic,
+                optimizeTitleInput = effectiveTitle,
+                optimizeDescInput = effectiveDesc,
+                optimizeTagsInput = effectiveTags
+            )
+        }
+        viewModelScope.launch {
+            val result = aiService.generateOptimizedTitlesAndMetadata(
+                topicOrDraftTitle = effectiveTitle.ifBlank { effectiveTopic },
+                niche = state.optimizeNicheInput,
+                currentDescription = effectiveDesc,
+                currentTags = effectiveTags
+                    .split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() },
+                channelContext = buildActiveChannelContextString()
+            )
+            result.onSuccess { res ->
+                _uiState.update {
+                    it.copy(
+                        titleOptimizerResult = res,
+                        isOptimizing = false,
+                        optimizeError = null
+                    )
+                }
+            }.onFailure { err ->
+                Log.w(TAG, "runTitleDescTagsOptimizer failed", err)
+                _uiState.update {
+                    it.copy(
+                        isOptimizing = false,
+                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                    )
+                }
+            }
+        }
+    }
+
+    fun setSelectedThumbnails(primary: Bitmap?, secondary: Bitmap? = _uiState.value.secondThumbnailBitmap) {
+        _uiState.update {
+            it.copy(
+                selectedThumbnailBitmap = primary,
+                secondThumbnailBitmap = secondary,
+                optimizeError = null
+            )
+        }
+    }
+
+    fun runThumbnailVisionCritique() {
+        val state = _uiState.value
+        val primary = state.selectedThumbnailBitmap
+        if (primary == null) {
+            _uiState.update { it.copy(optimizeError = "Please select a thumbnail image from your device first.") }
+            return
+        }
+        _uiState.update { it.copy(isOptimizing = true, optimizeError = null) }
+        viewModelScope.launch {
+            val titleForThumb = state.optimizeTitleInput.ifBlank {
+                state.selectedTargetVideo?.title ?: state.optimizeTopicInput.ifBlank { "YouTube Video" }
+            }
+            val result = aiService.critiqueThumbnailWithVision(
+                primaryBitmap = primary,
+                videoTitle = titleForThumb,
+                comparisonBitmap = state.secondThumbnailBitmap
+            )
+            result.onSuccess { visionRes ->
+                _uiState.update {
+                    it.copy(
+                        thumbnailVisionResult = visionRes,
+                        isOptimizing = false,
+                        optimizeError = null
+                    )
+                }
+            }.onFailure { err ->
+                Log.w(TAG, "runThumbnailVisionCritique failed", err)
+                _uiState.update {
+                    it.copy(
+                        isOptimizing = false,
+                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                    )
+                }
+            }
+        }
+    }
+
+    fun runScriptAndHookGenerator(durationMinutes: Int, tone: String) {
+        val state = _uiState.value
+        val topic = state.optimizeTopicInput.ifBlank { state.optimizeTitleInput }
+        if (topic.isBlank()) {
+            _uiState.update { it.copy(optimizeError = "Enter a video topic or title to generate hooks and script outline.") }
+            return
+        }
+        _uiState.update { it.copy(isOptimizing = true, optimizeError = null) }
+        viewModelScope.launch {
+            val res = aiService.generateScriptAndHooks(
+                topic = topic,
+                targetDurationMinutes = durationMinutes,
+                tone = tone,
+                channelContext = buildActiveChannelContextString()
+            )
+            res.onSuccess { md ->
+                _uiState.update { it.copy(scriptOutputMarkdown = md, isOptimizing = false) }
+            }.onFailure { err ->
+                Log.w(TAG, "runScriptAndHookGenerator failed", err)
+                _uiState.update {
+                    it.copy(
+                        isOptimizing = false,
+                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                    )
+                }
+            }
+        }
+    }
+
+    fun runShortsRepurposeGenerator(transcriptOrSummary: String) {
+        val state = _uiState.value
+        val title = state.optimizeTitleInput.ifBlank { state.optimizeTopicInput }
+        if (title.isBlank() && transcriptOrSummary.isBlank()) {
+            _uiState.update { it.copy(optimizeError = "Enter a video title or paste your script/summary to plan Shorts clips.") }
+            return
+        }
+        _uiState.update { it.copy(isOptimizing = true, optimizeError = null) }
+        viewModelScope.launch {
+            val res = aiService.generateShortsRepurposePlan(
+                videoTitle = title.ifBlank { "Creator Video" },
+                videoDescriptionOrTranscript = transcriptOrSummary.ifBlank { state.optimizeDescInput }
+            )
+            res.onSuccess { md ->
+                _uiState.update { it.copy(shortsPlanMarkdown = md, isOptimizing = false) }
+            }.onFailure { err ->
+                Log.w(TAG, "runShortsRepurposeGenerator failed", err)
+                _uiState.update {
+                    it.copy(
+                        isOptimizing = false,
+                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                    )
+                }
+            }
+        }
+    }
+
+    // --- Research Tab Actions ---
+    fun updateKeywordSeedInput(seed: String) {
+        _uiState.update { it.copy(keywordSeedInput = seed, researchError = null) }
+    }
+
+    fun runKeywordResearch() {
+        val seed = _uiState.value.keywordSeedInput.trim()
+        if (seed.length < 2) {
+            _uiState.update { it.copy(researchError = "Enter at least 2 characters to research YouTube keywords.") }
+            return
+        }
+        _uiState.update { it.copy(isResearchingKeywords = true, researchError = null) }
+        viewModelScope.launch {
+            val res = youTubeApi.researchKeyword(seed, _uiState.value.oauthAccessToken)
+            res.onSuccess { kwResult ->
+                _uiState.update {
+                    it.copy(
+                        keywordResearchResult = kwResult,
+                        isResearchingKeywords = false,
+                        researchError = null
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isResearchingKeywords = false,
+                        researchError = err.localizedMessage ?: "Keyword research failed."
+                    )
+                }
+            }
+        }
+    }
+
+    fun generateViralTopicIdeasForNiche(nicheQuery: String) {
+        val query = nicheQuery.trim().ifBlank {
+            _uiState.value.activeChannel?.title ?: _uiState.value.optimizeNicheInput
+        }
+        _uiState.update { it.copy(isGeneratingTrendIdeas = true, researchError = null) }
+        viewModelScope.launch {
+            val prompt = """
+                Generate 10 high-demand, low-saturation YouTube video ideas for the niche: "$query".
+                For each idea include:
+                - **Clickable Title** (<60 chars)
+                - **Thumbnail Visual Concept** (3-word text overlay + visual focal point)
+                - **Target Search Keyword & Buyer/Viewer Intent**
+                - **Opening 15-Second Hook**
+                - **Format Recommendation** (Long-form vs Shorts remix angle)
+            """.trimIndent()
+
+            val res = aiService.askZdAssistant(
+                userPrompt = prompt,
+                channelContext = buildActiveChannelContextString(),
+                chatHistory = emptyList()
+            )
+            res.onSuccess { md ->
+                _uiState.update { it.copy(trendIdeasMarkdown = md, isGeneratingTrendIdeas = false) }
+            }.onFailure {
+                _uiState.update {
+                    it.copy(
+                        isGeneratingTrendIdeas = false,
+                        researchError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                    )
+                }
+            }
+        }
+    }
+
+    fun updateCompetitorInputs(channelA: String, channelB: String) {
+        _uiState.update {
+            it.copy(
+                competitorInputA = channelA,
+                competitorInputB = channelB,
+                researchError = null
+            )
+        }
+    }
+
+    fun runCompetitorComparison() {
+        val state = _uiState.value
+        val inputA = state.competitorInputA.trim().ifBlank { state.activeChannel?.handle.orEmpty() }
+        val inputB = state.competitorInputB.trim()
+        if (inputA.isBlank() || inputB.isBlank()) {
+            _uiState.update { it.copy(researchError = "Enter two YouTube @handles or Channel IDs to benchmark side-by-side.") }
+            return
+        }
+        _uiState.update { it.copy(isComparingCompetitors = true, researchError = null) }
+        viewModelScope.launch {
+            val res = youTubeApi.compareChannels(inputA, inputB, state.oauthAccessToken)
+            res.onSuccess { comp ->
+                _uiState.update {
+                    it.copy(
+                        competitorComparison = comp,
+                        isComparingCompetitors = false,
+                        researchError = null
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isComparingCompetitors = false,
+                        researchError = err.localizedMessage ?: "Competitor comparison failed."
+                    )
+                }
+            }
+        }
+    }
+
+    fun updateCommentVideoUrlInput(url: String) {
+        _uiState.update { it.copy(commentVideoUrlInput = url, researchError = null) }
+    }
+
+    fun runCommentSentimentExplorer() {
+        val rawInput = _uiState.value.commentVideoUrlInput.trim()
+            .ifBlank { _uiState.value.selectedTargetVideo?.videoId ?: _uiState.value.activeChannelVideos.firstOrNull()?.videoId.orEmpty() }
+        val videoId = youTubeApi.extractVideoId(rawInput) ?: rawInput
+        if (videoId.isBlank()) {
+            _uiState.update { it.copy(researchError = "Paste a YouTube video URL or connect a channel first.") }
+            return
+        }
+        _uiState.update { it.copy(isAnalyzingComments = true, researchError = null) }
+        viewModelScope.launch {
+            val token = _uiState.value.oauthAccessToken
+            val videoDetail = youTubeApi.fetchVideoById(videoId, token).getOrNull()
+            val commentsRes = youTubeApi.fetchVideoComments(videoId, maxResults = 45, oauthAccessToken = token)
+            commentsRes.onSuccess { comments ->
+                _uiState.update { it.copy(commentList = comments) }
+                if (comments.isNotEmpty()) {
+                    val aiRes = aiService.analyzeCommentsAndAudienceSentiment(
+                        videoTitle = videoDetail?.title ?: "Video ($videoId)",
+                        comments = comments
+                    )
+                    aiRes.onSuccess { md ->
+                        _uiState.update {
+                            it.copy(
+                                commentSentimentMarkdown = md,
+                                isAnalyzingComments = false
+                            )
+                        }
+                    }.onFailure {
+                        _uiState.update {
+                            it.copy(
+                                isAnalyzingComments = false,
+                                researchError = ZedCraftAiService.FRIENDLY_ZD_ERROR
                             )
                         }
                     }
-                    _uiState.update { it.copy(isAddingCompetitor = false, competitorInput = "") }
-                    showToast("Added ${ch.title} to Competitor Tracker!")
-                }
-                .onFailure { err ->
+                } else {
                     _uiState.update {
                         it.copy(
-                            isAddingCompetitor = false,
-                            competitorError = err.localizedMessage ?: "Could not find competitor channel."
+                            isAnalyzingComments = false,
+                            commentSentimentMarkdown = "No public comments found on this video."
                         )
                     }
-                }
-        }
-    }
-
-    fun removeCompetitor(channelId: String) {
-        viewModelScope.launch {
-            if (_uiState.value.isSignedInWithGoogle) {
-                firestoreRepository.removeCompetitor(channelId)
-            } else {
-                _uiState.update { state ->
-                    state.copy(trackedCompetitors = state.trackedCompetitors.filterNot { it.channelId == channelId })
-                }
-            }
-        }
-    }
-
-    // --- 9. ZD AI Assistant Chat & Skill Pack ---
-    fun selectZdSkill(skill: ZdSkillModule) {
-        _uiState.update {
-            it.copy(
-                currentTab = PrimaryTab.ZD,
-                zdSubTab = 0,
-                activeZdSkill = skill
-            )
-        }
-    }
-
-    fun updateZdInput(text: String) {
-        _uiState.update { it.copy(zdInputText = text, zdError = null) }
-    }
-
-    fun sendZdPrompt(promptOverride: String? = null, skillOverride: ZdSkillModule? = null) {
-        val state = _uiState.value
-        val prompt = (promptOverride ?: state.zdInputText).trim()
-        if (prompt.isBlank()) return
-
-        val routedSkill = skillOverride ?: ZdSkillPack.routeSkillForPrompt(prompt, state.activeZdSkill.id)
-        val userMessage = ZdChatMessage(
-            id = "local_u_${System.currentTimeMillis()}",
-            userId = state.userUid.ifBlank { "guest" },
-            sessionId = "default",
-            role = "user",
-            content = prompt,
-            skillId = routedSkill.id,
-            modelUsed = ZedCraftAiConfig.ZD_MAIN_MODEL
-        )
-
-        _uiState.update {
-            it.copy(
-                zdInputText = if (promptOverride == null) "" else it.zdInputText,
-                isZdThinking = true,
-                zdError = null,
-                activeZdSkill = routedSkill,
-                zdSubTab = 0,
-                zdChatMessages = if (!it.isSignedInWithGoogle) it.zdChatMessages + userMessage else it.zdChatMessages
-            )
-        }
-
-        viewModelScope.launch {
-            if (state.isSignedInWithGoogle) {
-                firestoreRepository.appendZdChatMessage(
-                    sessionId = "default",
-                    role = "user",
-                    content = prompt,
-                    skillId = routedSkill.id,
-                    modelUsed = ZedCraftAiConfig.ZD_MAIN_MODEL
-                )
-            }
-
-            val historyPairs = _uiState.value.zdChatMessages.takeLast(8).map { it.role to it.content }
-            aiService.sendZdAssistantMessage(
-                userPrompt = prompt,
-                explicitSkillId = skillOverride?.id,
-                connectedChannel = state.activeChannel,
-                recentVideos = state.activeChannelVideos,
-                analyticsOverview = state.analyticsOverview,
-                healthReport = state.channelHealthReport,
-                recentChatHistory = historyPairs,
-                attachedThumbnail = state.thumbnailBitmapA
-            ).onSuccess { response ->
-                val toolJson = if (response.toolCard != null) {
-                    JSONObject().apply {
-                        put("toolType", response.toolCard.toolType.id)
-                        put("badgeText", response.toolCard.badgeText)
-                        put("title", response.toolCard.title)
-                        put("score", response.toolCard.score)
-                        put("bullets", response.toolCard.bulletPoints.joinToString("\n• "))
-                        put("copyableText", response.toolCard.copyableText)
-                    }.toString()
-                } else ""
-
-                if (_uiState.value.isSignedInWithGoogle) {
-                    firestoreRepository.appendZdChatMessage(
-                        sessionId = "default",
-                        role = "model",
-                        content = response.replyMarkdown,
-                        skillId = response.routedSkill.id,
-                        modelUsed = response.modelUsed,
-                        toolCardJson = toolJson
-                    )
-                } else {
-                    val modelMessage = ZdChatMessage(
-                        id = "local_m_${System.currentTimeMillis()}",
-                        userId = "guest",
-                        sessionId = "default",
-                        role = "model",
-                        content = response.replyMarkdown,
-                        skillId = response.routedSkill.id,
-                        toolCardJson = toolJson,
-                        modelUsed = response.modelUsed
-                    )
-                    _uiState.update { it.copy(zdChatMessages = it.zdChatMessages + modelMessage) }
-                }
-
-                _uiState.update {
-                    it.copy(
-                        isZdThinking = false,
-                        zdLatestResponse = response,
-                        activeZdSkill = response.routedSkill
-                    )
                 }
             }.onFailure { err ->
                 _uiState.update {
                     it.copy(
-                        isZdThinking = false,
-                        zdError = err.localizedMessage ?: "ZD encountered an error generating a response."
+                        isAnalyzingComments = false,
+                        researchError = err.localizedMessage ?: "Could not fetch comments."
                     )
                 }
             }
         }
     }
 
-    fun clearZdConversation() {
-        viewModelScope.launch {
-            if (_uiState.value.isSignedInWithGoogle) {
-                firestoreRepository.clearZdChatHistory()
-            }
-            _uiState.update { it.copy(zdChatMessages = emptyList(), zdLatestResponse = null) }
-            showToast("ZD conversation cleared.")
-        }
-    }
+    // --- ZD AI Coach Actions ---
+    fun sendZdPrompt(promptText: String) {
+        val trimmed = promptText.trim()
+        if (trimmed.isBlank() || _uiState.value.isZdThinking) return
 
-    // --- 10. Saved Work & Data Management ---
-    private suspend fun persistSavedWork(
-        workType: String,
-        title: String,
-        subtitle: String,
-        score: Int,
-        payloadJson: String
-    ) {
-        val channelId = _uiState.value.activeChannel?.channelId.orEmpty()
-        if (_uiState.value.isSignedInWithGoogle) {
-            firestoreRepository.saveWorkItem(
-                workType = workType,
-                title = title,
-                subtitle = subtitle,
-                score = score,
-                payloadJson = payloadJson,
-                channelId = channelId
-            )
-        } else {
-            cacheDao.insertLocalSavedWork(
-                LocalSavedWorkEntity(
-                    workType = workType,
-                    title = title,
-                    subtitle = subtitle,
-                    score = score,
-                    payloadJson = payloadJson,
-                    channelId = channelId
-                )
+        _uiState.update {
+            it.copy(
+                isZdThinking = true,
+                zdError = null,
+                lastFailedZdPrompt = null
             )
         }
-    }
 
-    fun deleteSavedWorkItem(item: SavedWorkItem) {
         viewModelScope.launch {
-            if (item.id.startsWith("local_")) {
-                val localId = item.id.removePrefix("local_").toLongOrNull() ?: return@launch
-                cacheDao.deleteLocalSavedWork(localId)
-            } else if (_uiState.value.isSignedInWithGoogle) {
-                firestoreRepository.deleteSavedWork(item.id)
-            }
-            showToast("Removed saved item.")
-        }
-    }
-
-    fun toggleSelectForCompare(item: SavedWorkItem) {
-        _uiState.update { state ->
-            when {
-                state.selectedCompareItemA?.id == item.id -> state.copy(selectedCompareItemA = null)
-                state.selectedCompareItemB?.id == item.id -> state.copy(selectedCompareItemB = null)
-                state.selectedCompareItemA == null -> state.copy(selectedCompareItemA = item)
-                else -> state.copy(selectedCompareItemB = item)
-            }
-        }
-    }
-
-    fun clearCompareSelection() {
-        _uiState.update { it.copy(selectedCompareItemA = null, selectedCompareItemB = null) }
-    }
-
-    fun clearLocalApiCache() {
-        viewModelScope.launch {
-            cacheDao.clearAllCache()
-            showToast("Local YouTube API cache cleared.")
-        }
-    }
-
-    fun deleteAllUserAndLocalData() {
-        viewModelScope.launch {
-            cacheDao.clearAllCache()
-            cacheDao.clearLocalSavedWork()
-            if (_uiState.value.isSignedInWithGoogle) {
-                firestoreRepository.deleteAllUserData()
-            }
-            _uiState.update {
-                it.copy(
-                    activeChannel = null,
-                    activeChannelVideos = emptyList(),
-                    analyticsOverview = null,
-                    channelHealthReport = null,
-                    connectedChannels = emptyList(),
-                    savedWorkItems = emptyList(),
-                    trackedCompetitors = emptyList(),
-                    zdChatMessages = emptyList(),
-                    toastMessage = "All cloud and local ZEDCraft data has been permanently deleted."
+            try {
+                cacheDao.insertZdChatMessage(
+                    ZdChatMessageEntity(
+                        role = "user",
+                        content = trimmed,
+                        createdAtMs = System.currentTimeMillis()
+                    )
                 )
-            }
-        }
-    }
 
-    // --- 11. App Updates (Hidden Release Channel) ---
-    fun checkForGitHubUpdates() {
-        _uiState.update { it.copy(isCheckingGitHubUpdate = true, githubUpdateError = null) }
-        viewModelScope.launch {
-            gitHubUpdateClient.checkForUpdates()
-                .onSuccess { info ->
+                val historyPairs = zdChatHistory.value.map { it.role to it.content }
+                val res = aiService.askZdAssistant(
+                    userPrompt = trimmed,
+                    channelContext = buildActiveChannelContextString(),
+                    chatHistory = historyPairs
+                )
+
+                res.onSuccess { reply ->
+                    cacheDao.insertZdChatMessage(
+                        ZdChatMessageEntity(
+                            role = "assistant",
+                            content = reply,
+                            createdAtMs = System.currentTimeMillis()
+                        )
+                    )
                     _uiState.update {
                         it.copy(
-                            isCheckingGitHubUpdate = false,
-                            githubUpdateInfo = info,
-                            githubUpdateError = null
+                            isZdThinking = false,
+                            zdError = null,
+                            lastFailedZdPrompt = null
                         )
                     }
-                    showToast(info.statusSummary)
                 }.onFailure { err ->
+                    Log.e(TAG, "ZD AI assistant failed after retry and fallback", err)
                     _uiState.update {
                         it.copy(
-                            isCheckingGitHubUpdate = false,
-                            githubUpdateError = err.localizedMessage ?: "Failed to check for updates."
+                            isZdThinking = false,
+                            zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                            lastFailedZdPrompt = trimmed
                         )
                     }
                 }
+            } catch (e: CancellationException) {
+                _uiState.update { it.copy(isZdThinking = false) }
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Unexpected exception in sendZdPrompt", e)
+                _uiState.update {
+                    it.copy(
+                        isZdThinking = false,
+                        zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                        lastFailedZdPrompt = trimmed
+                    )
+                }
+            }
         }
+    }
+
+    /**
+     * Retries the last failed ZD prompt without duplicating the user bubble in the chat history.
+     */
+    fun retryLastZdPrompt() {
+        val lastPrompt = _uiState.value.lastFailedZdPrompt
+            ?: zdChatHistory.value.lastOrNull { it.role == "user" }?.content
+            ?: return
+        if (_uiState.value.isZdThinking) return
+
+        _uiState.update {
+            it.copy(
+                isZdThinking = true,
+                zdError = null
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val historyPairs = zdChatHistory.value.dropLast(1).map { it.role to it.content }
+                val res = aiService.askZdAssistant(
+                    userPrompt = lastPrompt,
+                    channelContext = buildActiveChannelContextString(),
+                    chatHistory = historyPairs
+                )
+
+                res.onSuccess { reply ->
+                    cacheDao.insertZdChatMessage(
+                        ZdChatMessageEntity(
+                            role = "assistant",
+                            content = reply,
+                            createdAtMs = System.currentTimeMillis()
+                        )
+                    )
+                    _uiState.update {
+                        it.copy(
+                            isZdThinking = false,
+                            zdError = null,
+                            lastFailedZdPrompt = null
+                        )
+                    }
+                }.onFailure { err ->
+                    Log.e(TAG, "ZD retry failed", err)
+                    _uiState.update {
+                        it.copy(
+                            isZdThinking = false,
+                            zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                            lastFailedZdPrompt = lastPrompt
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                _uiState.update { it.copy(isZdThinking = false) }
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Unexpected exception in retryLastZdPrompt", e)
+                _uiState.update {
+                    it.copy(
+                        isZdThinking = false,
+                        zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                        lastFailedZdPrompt = lastPrompt
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearZdChat() {
+        viewModelScope.launch {
+            cacheDao.clearZdChatMessages()
+            _uiState.update {
+                it.copy(
+                    isZdThinking = false,
+                    zdError = null,
+                    lastFailedZdPrompt = null
+                )
+            }
+            seedWelcomeZdMessageIfEmpty()
+        }
+    }
+
+    // --- Saved Ideas Vault Actions ---
+    fun saveIdeaToVault(category: String, title: String, content: String, tags: String = "") {
+        viewModelScope.launch {
+            cacheDao.insertSavedIdea(
+                SavedIdeaEntity(
+                    category = category,
+                    title = title.take(120),
+                    content = content,
+                    tags = tags,
+                    createdAtMs = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun deleteSavedIdea(id: Long) {
+        viewModelScope.launch {
+            cacheDao.deleteSavedIdea(id)
+        }
+    }
+
+    // --- Checklist Actions ---
+    fun toggleChecklistItem(item: ChecklistItemEntity) {
+        viewModelScope.launch {
+            cacheDao.upsertChecklistItem(item.copy(isCompleted = !item.isCompleted))
+        }
+    }
+
+    fun resetChecklistProgress() {
+        viewModelScope.launch {
+            checklistItems.value.forEach { item ->
+                if (item.isCompleted) {
+                    cacheDao.upsertChecklistItem(item.copy(isCompleted = false))
+                }
+            }
+        }
+    }
+
+    // --- Revenue Calculator Actions ---
+    fun updateRevenueCalculator(
+        monthlyViews: Long = _uiState.value.calcMonthlyViews,
+        nicheRpmUsd: Double = _uiState.value.calcNicheRpmUsd,
+        shortsViews: Long = _uiState.value.calcShortsViews,
+        avgViewsPerVideo: Long = _uiState.value.calcAvgViewsPerVideo
+    ) {
+        _uiState.update {
+            it.copy(
+                calcMonthlyViews = monthlyViews.coerceAtLeast(0L),
+                calcNicheRpmUsd = nicheRpmUsd.coerceIn(0.5, 50.0),
+                calcShortsViews = shortsViews.coerceAtLeast(0L),
+                calcAvgViewsPerVideo = avgViewsPerVideo.coerceAtLeast(0L)
+            )
+        }
+    }
+
+    fun clearRoomCache() {
+        viewModelScope.launch {
+            cacheDao.clearAllApiCache()
+        }
+    }
+
+    // --- GitHub In-App Auto-Update Actions ---
+    fun checkForGitHubUpdates(isSilent: Boolean = false) {
+        if (_uiState.value.isCheckingUpdate) return
+        if (isSilent && !gitHubUpdateClient.shouldRunSilentCheck()) return
+
+        _uiState.update {
+            it.copy(
+                isCheckingUpdate = !isSilent,
+                updateCheckError = if (isSilent) it.updateCheckError else null
+            )
+        }
+
+        viewModelScope.launch {
+            val res = gitHubUpdateClient.checkForUpdates(
+                repoInput = GitHubUpdateClient.DEFAULT_GITHUB_REPO,
+                isSilent = isSilent
+            )
+            res.onSuccess { info ->
+                _uiState.update {
+                    it.copy(
+                        isCheckingUpdate = false,
+                        githubReleaseInfo = info,
+                        updateCheckError = null,
+                        showAutoUpdateDialog = if (info.isUpdateAvailable) true else it.showAutoUpdateDialog
+                    )
+                }
+            }.onFailure { err ->
+                // If silent check fails or there is no internet, stay completely silent and never crash
+                if (isSilent) {
+                    _uiState.update { it.copy(isCheckingUpdate = false) }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isCheckingUpdate = false,
+                            updateCheckError = "Could not check for updates right now. Please check your internet connection."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun dismissAutoUpdateDialog() {
+        _uiState.update { it.copy(showAutoUpdateDialog = false) }
+    }
+
+    /**
+     * Downloads the release `.apk` inside the app (never opening GitHub or the browser),
+     * updating progress percentage, downloaded MB, and total MB in real time.
+     */
+    fun startInAppUpdateDownload() {
+        val release = _uiState.value.githubReleaseInfo ?: return
+        val apkUrl = release.apkDownloadUrl
+        if (apkUrl.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(
+                    showAutoUpdateDialog = false,
+                    updateDownloadError = "Release ${release.latestTag} does not have an .apk asset attached yet."
+                )
+            }
+            return
+        }
+
+        activeDownloadJob?.cancel()
+        _uiState.update {
+            it.copy(
+                showAutoUpdateDialog = false,
+                isDownloadingUpdate = true,
+                downloadProgressPercent = 0,
+                downloadedMb = 0f,
+                totalMb = if (release.apkSizeBytes > 0) release.apkSizeBytes.toFloat() / (1024f * 1024f) else 0f,
+                updateDownloadError = null,
+                downloadedApkFile = null
+            )
+        }
+
+        activeDownloadJob = viewModelScope.launch {
+            val result = gitHubUpdateClient.downloadUpdateApk(
+                apkUrl = apkUrl,
+                versionTag = release.latestTag,
+                onProgress = { progress: ApkDownloadProgress ->
+                    _uiState.update { state ->
+                        state.copy(
+                            downloadProgressPercent = progress.percent.coerceAtLeast(0),
+                            downloadedMb = progress.downloadedMb,
+                            totalMb = progress.totalMb
+                        )
+                    }
+                }
+            )
+
+            result.onSuccess { apkFile ->
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        downloadProgressPercent = 100,
+                        downloadedApkFile = apkFile,
+                        updateDownloadError = null
+                    )
+                }
+            }.onFailure { err ->
+                if (err is CancellationException) {
+                    _uiState.update {
+                        it.copy(
+                            isDownloadingUpdate = false,
+                            updateDownloadError = null
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isDownloadingUpdate = false,
+                            updateDownloadError = err.localizedMessage ?: "Download failed. Please tap Retry."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelInAppUpdateDownload() {
+        activeDownloadJob?.cancel()
+        activeDownloadJob = null
+        _uiState.update {
+            it.copy(
+                isDownloadingUpdate = false,
+                updateDownloadError = null
+            )
+        }
+    }
+
+    fun dismissUpdateDownloadError() {
+        _uiState.update { it.copy(updateDownloadError = null) }
+    }
+
+    fun setShowUnknownSourcesDialog(show: Boolean, pendingInstall: Boolean = false) {
+        _uiState.update {
+            it.copy(
+                showUnknownSourcesDialog = show,
+                pendingInstallAfterPermission = pendingInstall
+            )
+        }
+    }
+
+    fun clearDownloadedApkState() {
+        _uiState.update {
+            it.copy(
+                downloadedApkFile = null,
+                pendingInstallAfterPermission = false,
+                showUnknownSourcesDialog = false
+            )
+        }
+    }
+
+    private fun buildActiveChannelContextString(): String {
+        val state = _uiState.value
+        val ch = state.activeChannel ?: return "No YouTube channel connected yet. General creator coaching mode."
+        val topTitles = state.activeChannelVideos
+            .sortedByDescending { it.viewCount }
+            .take(5)
+            .joinToString(" | ") { "\"${it.title}\" (${YouTubeApiClient.formatCompact(it.viewCount)} views)" }
+        val health = state.channelHealthReport
+        return buildString {
+            appendLine("Channel: ${ch.title} (${ch.handle}) [ID: ${ch.channelId}]")
+            appendLine("Subscribers: ${YouTubeApiClient.formatCompact(ch.subscriberCount)} | Total Views: ${YouTubeApiClient.formatCompact(ch.viewCount)} | Videos: ${ch.videoCount}")
+            if (health != null) {
+                appendLine("Channel Health Score: ${health.overallHealthScore}/100 | Uploads/Mo: ${String.format("%.1f", health.uploadsPerMonth)} | Shorts Ratio: ${health.shortsRatioPercent}%")
+                appendLine("Best Upload Windows: ${health.bestUploadSchedule}")
+                appendLine("Diagnosis: ${health.dropDiagnosisSummary}")
+            }
+            if (topTitles.isNotBlank()) {
+                appendLine("Top Performing Videos: $topTitles")
+            }
+        }
+    }
+
+    private suspend fun seedWelcomeZdMessageIfEmpty() {
+        val current = cacheDao.observeZdChatMessages()
+        // Always ensure there's a helpful initial message if the table is empty
+        val list = zdChatHistory.value
+        if (list.isEmpty()) {
+            cacheDao.insertZdChatMessage(
+                ZdChatMessageEntity(
+                    role = "assistant",
+                    content = """
+                        Welcome to **ZD** — your YouTube Growth & Strategy Coach!
+                        
+                        Ask me anything or pick a quick action above:
+                        - **Score & Rewrite Titles** and apply them directly to your YouTube videos
+                        - **Diagnose View Drops** using your real upload history & channel median
+                        - **Write High-Retention Hooks** for the first 30 seconds
+                        - **Audit Thumbnail Concepts** for mobile clarity and click appeal
+                    """.trimIndent(),
+                    createdAtMs = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private suspend fun seedDefaultChecklistIfEmpty() {
+        val defaults = listOf(
+            ChecklistItemEntity(
+                itemKey = "pre_1_title_curiosity",
+                phase = "Pre-Publish",
+                title = "Title under 60 characters with clear curiosity gap",
+                description = "Mobile Home & Browse feeds truncate titles around 58–62 chars. Front-load the hook.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "pre_2_thumb_mobile_squint",
+                phase = "Pre-Publish",
+                title = "Thumbnail passes the 120x68px Mobile Squint Test",
+                description = "Max 3 focal elements, 1–4 words of bold high-contrast text, and no bottom-right timestamp clash.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "pre_3_hook_alignment",
+                phase = "Pre-Publish",
+                title = "First 15 seconds immediately validate the title & thumbnail",
+                description = "Eliminate channel intros or logos; deliver the visual/verbal payoff immediately.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "pre_4_desc_above_fold",
+                phase = "Pre-Publish",
+                title = "First 2 description lines contain primary keyword + compelling hook",
+                description = "These 150 characters appear in YouTube Search snippets and above 'Show More'.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "pre_5_chapters_0000",
+                phase = "Pre-Publish",
+                title = "00:00 chapters added (at least 3 timestamps >=10s apart)",
+                description = "Unlocks Google Search key moments and improves viewer scrubbing retention.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "pre_6_end_screen_binge",
+                phase = "Pre-Publish",
+                title = "End screen links to a single high-converting follow-up video",
+                description = "Verbal bridge into one specific next video increases session watch time.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "post_1_pinned_comment",
+                phase = "First 24 Hours",
+                title = "Pin an open-ended question or resource link in comments",
+                description = "Sparks early comment velocity and boosts community engagement signals.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "post_2_ctr_check_3hr",
+                phase = "First 24 Hours",
+                title = "Monitor Browse CTR after 2–3 hours; swap to backup title/thumbnail if below channel average",
+                description = "Use ZEDCraft Optimize to apply an alternative title or thumbnail directly to YouTube.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "mono_1_ypp_500_tier",
+                phase = "Monetization (YPP)",
+                title = "YPP Early Access Tier: 500 Subscribers + 3 Public Uploads (90d) + 3,000 Watch Hours (or 3M Shorts Views)",
+                description = "Unlocks fan funding (Super Thanks, Super Chat, Channel Memberships) & Shopping.",
+                isCompleted = false
+            ),
+            ChecklistItemEntity(
+                itemKey = "mono_2_ypp_1000_tier",
+                phase = "Monetization (YPP)",
+                title = "Full Ad Revenue Tier: 1,000 Subscribers + 4,000 Valid Public Watch Hours (12m) or 10M Shorts Views (90d)",
+                description = "Unlocks Long-Form Watch Page Ad Revenue and Shorts Feed Ad Revenue sharing.",
+                isCompleted = false
+            )
+        )
+        cacheDao.seedChecklistIfEmpty(defaults)
     }
 
     companion object {
-        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                val app = checkNotNull(extras[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
-                val databaseId = app.getString(R.string.firestore_database_id)
-                val firestore = FirebaseFirestore.getInstance(databaseId)
-                val firestoreRepo = ZedCraftFirestoreRepository(firestore)
-                val localDb = ZedCraftLocalDatabase.getInstance(app)
-                val cacheDao = localDb.cacheDao()
-                val ytClient = YouTubeApiClient(cacheDao)
-                val aiService = ZedCraftAiService()
-                val ghClient = GitHubUpdateClient(app)
-                return ZedCraftViewModel(
-                    firestoreRepository = firestoreRepo,
-                    youTubeApiClient = ytClient,
-                    aiService = aiService,
-                    cacheDao = cacheDao,
-                    gitHubUpdateClient = ghClient
-                ) as T
-            }
-        }
+        private const val TAG = "ZedCraftViewModel"
     }
 }

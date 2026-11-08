@@ -1,16 +1,16 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,300 +22,312 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.R
-import com.example.ai.ZdSkillModule
-import com.example.ai.ZdSkillPack
-import com.example.ai.ZedCraftAiConfig
-import com.example.data.model.ZdChatMessage
-import com.example.ui.components.DataBadge
-import com.example.ui.components.ErrorBanner
-import com.example.ui.components.GlassCard
-import com.example.ui.components.SectionHeader
-import com.example.ui.components.SegmentedPillBar
-import com.example.ui.components.scoreColor
-import com.example.ui.theme.ZedCyan
-import com.example.ui.theme.ZedSuccess
-import com.example.ui.theme.ZedViolet
+import com.example.data.local.ZdChatMessageEntity
+import com.example.ui.theme.ZedAmberWarning
+import com.example.ui.theme.ZedCardBorder
+import com.example.ui.theme.ZedCyanPrimary
+import com.example.ui.theme.ZedDarkBackground
+import com.example.ui.theme.ZedDarkSurfaceElevated
+import com.example.ui.theme.ZedEmeraldSuccess
+import com.example.ui.theme.ZedGlassSurface
+import com.example.ui.theme.ZedPurpleAccent
+import com.example.ui.theme.ZedTextMuted
+import com.example.ui.theme.ZedTextSecondary
 import com.example.ui.viewmodel.ZedCraftUiState
 import com.example.ui.viewmodel.ZedCraftViewModel
-import org.json.JSONObject
 
 @Composable
 fun ZdAssistantScreen(
     uiState: ZedCraftUiState,
+    chatMessages: List<ZdChatMessageEntity>,
     viewModel: ZedCraftViewModel
 ) {
+    val context = LocalContext.current
+    var inputPrompt by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    val quickActionPrompts = remember(uiState.activeChannel) {
+        val chName = uiState.activeChannel?.title ?: "my channel"
+        listOf(
+            "Audit My Channel" to "Perform a 360° growth audit of $chName based on my real video stats, upload frequency, and top performers. Give me 5 prioritized next steps.",
+            "Why Did Views Drop?" to "Diagnose why recent uploads on $chName may have fewer views than my channel median. Break down CTR, topic breadth, and retention fixes.",
+            "10 Viral Video Ideas" to "Generate 10 high-CTR, low-competition video ideas tailored to $chName with clickable titles (<60 chars) and 3-word thumbnail text.",
+            "Rewrite My Title" to "Give me 8 curiosity-driven title variations and matching thumbnail concepts for my next upload on $chName.",
+            "First 30s Hook Formula" to "Write 3 high-retention opening 30-second hooks (Pattern Interrupt, Curiosity Gap, Proof-First) for my next video.",
+            "Shorts to Long-Form Bridge" to "How do I convert my Shorts viewers into loyal long-form subscribers without hurting my Browse CTR?",
+            "Sponsor Rate Card" to "Calculate a realistic sponsor integration rate card and cold-pitch email template for my current view velocity."
+        )
+    }
+
+    LaunchedEffect(chatMessages.size, uiState.isZdThinking, uiState.zdError) {
+        if (chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(chatMessages.size - 1)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .background(ZedDarkBackground)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
-        SegmentedPillBar(
-            options = listOf(
-                "Chat with ZD" to Icons.Default.ChatBubbleOutline,
-                "12-Skill Pack" to Icons.Default.Extension
-            ),
-            selectedIndex = uiState.zdSubTab,
-            onSelect = { viewModel.selectZdSubTab(it) }
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        if (uiState.zdSubTab == 0) {
-            ZdChatPane(uiState = uiState, viewModel = viewModel)
-        } else {
-            ZdSkillPackPane(uiState = uiState, viewModel = viewModel)
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ZdChatPane(
-    uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
-) {
-    val clipboard = LocalClipboardManager.current
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        // ZD Partner Header Card
-        GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.55f)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.img_zd_avatar_1794133253177),
-                    contentDescription = "ZD YouTube Growth Partner Avatar",
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .border(1.5.dp, ZedCyan, CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
+        // ZD Header Strip + Quick Action Pills
+        Surface(
+            color = ZedGlassSurface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "ZD, your YouTube growth partner",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(ZedCyanPrimary.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "ZD Coach",
+                                tint = ZedCyanPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "ZD • YouTube Growth & Strategy Coach",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (uiState.activeChannel != null) {
+                                    "Context: ${uiState.activeChannel.title} (${uiState.activeChannel.handle})"
+                                } else {
+                                    "Ask anything about titles, CTR, retention & growth"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ZedEmeraldSuccess
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+
+                    IconButton(
+                        onClick = { viewModel.clearZdChat() },
+                        modifier = Modifier.testTag("zd_clear_chat_button")
                     ) {
-                        DataBadge(
-                            text = "Skill #${uiState.activeZdSkill.number}: ${uiState.activeZdSkill.badge}",
-                            isAi = true
-                        )
-                        DataBadge(
-                            text = ZedCraftAiConfig.ZD_MAIN_MODEL,
-                            isAi = true,
-                            colorOverride = ZedCyan
-                        )
-                    }
-                }
-                if (uiState.zdChatMessages.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.clearZdConversation() }) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
-                            contentDescription = "Clear ZD Conversation",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            contentDescription = "Reset ZD Conversation",
+                            tint = ZedTextSecondary
                         )
                     }
                 }
-            }
 
-            // Skill quick-selector row
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                ZdSkillPack.skills.forEach { skill ->
-                    val isSelected = skill.id == uiState.activeZdSkill.id
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                        ),
-                        modifier = Modifier.clickable { viewModel.selectZdSkill(skill) }
-                    ) {
-                        Text(
-                            text = "${skill.number}. ${skill.badge}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
-                    }
-                }
-            }
-        }
+                Spacer(modifier = Modifier.height(8.dp))
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Scrollable chat messages area
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            if (uiState.zdChatMessages.isEmpty()) {
-                item {
-                    GlassCard {
-                        Text(
-                            text = "Active Skill: ${uiState.activeZdSkill.title}",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = uiState.activeZdSkill.summary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Tap an action prompt to start or type your own below:",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        uiState.activeZdSkill.examplePrompts.forEach { prompt ->
-                            OutlinedButton(
-                                onClick = {
-                                    viewModel.sendZdPrompt(
-                                        promptOverride = prompt,
-                                        skillOverride = uiState.activeZdSkill
-                                    )
+                // Quick Action Prompts Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    quickActionPrompts.forEach { (label, fullPrompt) ->
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(enabled = !uiState.isZdThinking) {
+                                    viewModel.sendZdPrompt(fullPrompt)
                                 },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp),
-                                shape = RoundedCornerShape(12.dp)
+                            color = ZedDarkSurfaceElevated,
+                            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.35f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    Icons.Default.AutoAwesome,
+                                    imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = ZedCyan
+                                    tint = ZedCyanPrimary,
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = prompt,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.weight(1f)
+                                    text = label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
                                 )
                             }
                         }
                     }
                 }
             }
+        }
 
-            items(uiState.zdChatMessages, key = { it.id.ifBlank { "${it.role}_${it.content.hashCode()}" } }) { msg ->
-                ZdMessageBubble(
+        // Chat Messages Stream (Scrollable)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(chatMessages, key = { it.id }) { msg ->
+                ZdChatBubble(
                     message = msg,
-                    onCopy = { text ->
-                        clipboard.setText(AnnotatedString(text))
-                        viewModel.showToast("Copied ZD output to clipboard!")
+                    onCopy = {
+                        copyMessageToClipboard(context, msg.content)
+                    },
+                    onSaveToVault = {
+                        viewModel.saveIdeaToVault(
+                            category = "ZD Coaching",
+                            title = msg.content.lineSequence().firstOrNull()?.take(60) ?: "ZD Strategy Note",
+                            content = msg.content
+                        )
+                        Toast.makeText(context, "Saved to Vault", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
 
             if (uiState.isZdThinking) {
                 item {
-                    GlassCard(accentBorderColor = ZedViolet.copy(alpha = 0.6f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                        border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.5.dp,
-                                color = ZedViolet
+                                color = ZedCyanPrimary
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "ZD is analyzing your channel & executing ${uiState.activeZdSkill.badge}...",
-                                    style = MaterialTheme.typography.titleSmall
-                                )
-                                Text(
-                                    text = "Model: ${ZedCraftAiConfig.ZD_MAIN_MODEL} (ThinkingLevel.HIGH)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = "ZD is analyzing your channel & crafting strategy...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ZedTextSecondary
+                            )
                         }
                     }
                 }
             }
 
-            uiState.zdError?.let { err ->
-                item { ErrorBanner(message = err) }
-            }
-
-            val followUps = uiState.zdLatestResponse?.followUpPrompts.orEmpty()
-            if (followUps.isNotEmpty() && !uiState.isZdThinking) {
+            if (!uiState.zdError.isNullOrBlank()) {
                 item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "Suggested Next Steps:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("zd_friendly_error_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                        border = BorderStroke(1.dp, ZedAmberWarning.copy(alpha = 0.55f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            followUps.forEach { followUp ->
-                                AssistChip(
-                                    onClick = { viewModel.sendZdPrompt(promptOverride = followUp) },
-                                    label = { Text(followUp, style = MaterialTheme.typography.bodySmall) }
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(ZedAmberWarning.copy(alpha = 0.16f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.WifiOff,
+                                        contentDescription = null,
+                                        tint = ZedAmberWarning,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "ZD is having trouble connecting. Please try again.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Button(
+                                onClick = { viewModel.retryLastZdPrompt() },
+                                enabled = !uiState.isZdThinking,
+                                modifier = Modifier.testTag("zd_retry_button"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ZedCyanPrimary,
+                                    contentColor = ZedDarkBackground
+                                ),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Retry",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Retry",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -324,46 +336,69 @@ private fun ZdChatPane(
             }
         }
 
-        // Fixed Input Bar at the bottom of ZD Chat
+        // Fixed Bottom Composer Bar
         Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 10.dp),
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+            color = ZedGlassSurface,
+            modifier = Modifier.fillMaxWidth(),
+            border = BorderStroke(1.dp, ZedCardBorder)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = uiState.zdInputText,
-                    onValueChange = { viewModel.updateZdInput(it) },
+                    value = inputPrompt,
+                    onValueChange = { inputPrompt = it },
                     placeholder = {
-                        Text("Ask ZD to score titles, write hooks, diagnose views, or plan videos...")
+                        Text(
+                            text = "Ask ZD about titles, hooks, CTR, or growth...",
+                            color = ZedTextMuted
+                        )
                     },
-                    maxLines = 3,
+                    maxLines = 4,
                     modifier = Modifier
                         .weight(1f)
-                        .testTag("zd_chat_input"),
-                    shape = RoundedCornerShape(14.dp)
+                        .testTag("zd_prompt_input"),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ZedCyanPrimary,
+                        unfocusedBorderColor = ZedCardBorder,
+                        focusedContainerColor = ZedDarkBackground,
+                        unfocusedContainerColor = ZedDarkBackground
+                    )
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = { viewModel.sendZdPrompt() },
-                    enabled = !uiState.isZdThinking && uiState.zdInputText.isNotBlank(),
+                IconButton(
+                    onClick = {
+                        val toSend = inputPrompt.trim()
+                        if (toSend.isNotBlank() && !uiState.isZdThinking) {
+                            inputPrompt = ""
+                            viewModel.sendZdPrompt(toSend)
+                        }
+                    },
+                    enabled = inputPrompt.isNotBlank() && !uiState.isZdThinking,
                     modifier = Modifier
-                        .height(50.dp)
-                        .testTag("zd_send_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp)
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (inputPrompt.isNotBlank() && !uiState.isZdThinking) {
+                                ZedCyanPrimary
+                            } else {
+                                ZedCardBorder
+                            }
+                        )
+                        .testTag("zd_send_button")
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send to ZD"
+                        contentDescription = "Send to ZD",
+                        tint = if (inputPrompt.isNotBlank() && !uiState.isZdThinking) {
+                            ZedDarkBackground
+                        } else {
+                            ZedTextMuted
+                        }
                     )
                 }
             }
@@ -372,35 +407,31 @@ private fun ZdChatPane(
 }
 
 @Composable
-private fun ZdMessageBubble(
-    message: ZdChatMessage,
-    onCopy: (String) -> Unit
+private fun ZdChatBubble(
+    message: ZdChatMessageEntity,
+    onCopy: () -> Unit,
+    onSaveToVault: () -> Unit
 ) {
-    val isUser = message.role.equals("user", ignoreCase = true)
-    val skill = ZdSkillPack.getById(message.skillId)
-
+    val isUser = message.role == "user"
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        Surface(
+        Card(
+            modifier = Modifier.fillMaxWidth(if (isUser) 0.85f else 0.96f),
             shape = RoundedCornerShape(
                 topStart = 18.dp,
                 topEnd = 18.dp,
                 bottomStart = if (isUser) 18.dp else 4.dp,
                 bottomEnd = if (isUser) 4.dp else 18.dp
             ),
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
-            },
+            colors = CardDefaults.cardColors(
+                containerColor = if (isUser) ZedPurpleAccent.copy(alpha = 0.28f) else ZedGlassSurface
+            ),
             border = BorderStroke(
                 1.dp,
-                if (isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-            ),
-            modifier = Modifier.fillMaxWidth(if (isUser) 0.88f else 0.98f)
+                if (isUser) ZedPurpleAccent.copy(alpha = 0.55f) else ZedCardBorder
+            )
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(
@@ -408,274 +439,52 @@ private fun ZdMessageBubble(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (!isUser) {
-                            Image(
-                                painter = painterResource(id = R.drawable.img_zd_avatar_1794133253177),
-                                contentDescription = "ZD",
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                            Text(
-                                text = "ZD",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = ZedCyan
-                            )
-                            DataBadge(text = "AI-generated • ${skill.badge}", isAi = true)
-                        } else {
-                            Text(
-                                text = "You",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
+                    Text(
+                        text = if (isUser) "You" else "ZD • Growth Coach",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isUser) ZedPurpleAccent else ZedCyanPrimary
+                    )
                     if (!isUser) {
-                        IconButton(
-                            onClick = { onCopy(message.content) },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy ZD Response",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = message.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                // Rich Tool Output Card when ZD executed a tool
-                if (!isUser && message.toolCardJson.isNotBlank()) {
-                    val toolObj = runCatching { JSONObject(message.toolCardJson) }.getOrNull()
-                    if (toolObj != null) {
-                        val badgeText = toolObj.optString("badgeText", "ZD Tool Output")
-                        val cardTitle = toolObj.optString("title", "")
-                        val score = toolObj.optInt("score", 0)
-                        val bullets = toolObj.optString("bullets", "")
-                        val copyable = toolObj.optString("copyableText", "")
-
-                        if (cardTitle.isNotBlank() || copyable.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(1.dp, ZedViolet.copy(alpha = 0.6f)),
-                                modifier = Modifier.fillMaxWidth()
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(
+                                onClick = onCopy,
+                                modifier = Modifier.size(28.dp)
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        DataBadge(text = badgeText, isAi = true)
-                                        if (score > 0) {
-                                            DataBadge(
-                                                text = "AI Estimate: $score/100",
-                                                isAi = true,
-                                                colorOverride = scoreColor(score)
-                                            )
-                                        }
-                                    }
-                                    if (cardTitle.isNotBlank()) {
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = cardTitle,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    if (bullets.isNotBlank()) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "• $bullets",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (copyable.isNotBlank()) {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                                                .padding(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = copyable,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(onClick = { onCopy(copyable) }) {
-                                                Icon(
-                                                    Icons.Default.ContentCopy,
-                                                    contentDescription = "Copy Tool Output",
-                                                    tint = ZedCyan
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy Response",
+                                    tint = ZedTextSecondary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = onSaveToVault,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.BookmarkAdd,
+                                    contentDescription = "Save Response to Vault",
+                                    tint = ZedCyanPrimary,
+                                    modifier = Modifier.size(15.dp)
+                                )
                             }
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ZdSkillPackPane(
-    uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            SectionHeader(
-                title = "ZD Built-In 12-Skill Pack",
-                subtitle = "Modular YouTube creator playbook skills with real channel context & tool execution.",
-                badgeText = "12 Skills Active",
-                isAiBadge = true
-            )
-        }
-
-        items(ZdSkillPack.skills, key = { it.id }) { skill ->
-            ZdSkillCard(
-                skill = skill,
-                isActive = uiState.activeZdSkill.id == skill.id,
-                onSelectSkill = { viewModel.selectZdSkill(skill) },
-                onRunPrompt = { prompt ->
-                    viewModel.sendZdPrompt(promptOverride = prompt, skillOverride = skill)
-                }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ZdSkillCard(
-    skill: ZdSkillModule,
-    isActive: Boolean,
-    onSelectSkill: () -> Unit,
-    onRunPrompt: (String) -> Unit
-) {
-    GlassCard(
-        accentBorderColor = if (isActive) ZedCyan else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${skill.number}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = skill.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    DataBadge(text = skill.badge, isAi = true)
-                }
-            }
-
-            Button(
-                onClick = onSelectSkill,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isActive) ZedSuccess.copy(alpha = 0.2f)
-                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                    contentColor = if (isActive) ZedSuccess else MaterialTheme.colorScheme.primary
-                ),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text(if (isActive) "Selected" else "Use Skill", style = MaterialTheme.typography.labelLarge)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = skill.summary,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Tap an example prompt to run immediately with ZD:",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            skill.examplePrompts.forEach { prompt ->
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-                    modifier = Modifier.clickable { onRunPrompt(prompt) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = ZedCyan,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = prompt,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-        }
-    }
+private fun copyMessageToClipboard(context: Context, text: String) {
+    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    cb?.setPrimaryClip(ClipData.newPlainText("ZD Response", text))
+    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
 }

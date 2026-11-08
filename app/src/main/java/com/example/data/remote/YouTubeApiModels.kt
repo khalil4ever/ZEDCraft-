@@ -35,7 +35,9 @@ data class YtVideoDetail(
     val commentCount: Long,
     val tags: List<String>,
     val hashtags: List<String>,
-    val categoryId: String = "",
+    val categoryId: String = "22",
+    val defaultLanguage: String = "",
+    val defaultAudioLanguage: String = "",
     val madeForKids: Boolean = false,
     val hasChapters: Boolean = false,
     val chapterCount: Int = 0,
@@ -50,7 +52,62 @@ data class YtVideoDetail(
         get() = if (channelSubscribers > 0) {
             viewCount.toDouble() / channelSubscribers.toDouble()
         } else 1.0
+
+    val quickSeoScore: Int
+        get() {
+            val titlePts = when (title.length) {
+                in 42..65 -> 30
+                in 30..72 -> 24
+                else -> 15
+            }
+            val descPts = when {
+                description.length >= 300 -> 25
+                description.length >= 120 -> 18
+                description.isNotBlank() -> 10
+                else -> 4
+            }
+            val tagsPts = when {
+                tags.size >= 8 -> 25
+                tags.size >= 3 -> 16
+                else -> 6
+            }
+            val chapterAndHashPts = (if (hasChapters || isShort) 10 else 4) +
+                (if (hashtags.size in 1..6) 10 else 4)
+            return (titlePts + descPts + tagsPts + chapterAndHashPts).coerceIn(10, 99)
+        }
 }
+
+data class YouTubeWriteOutcome(
+    val videoId: String,
+    val updatedField: String,
+    val updatedTitle: String,
+    val updatedDescription: String,
+    val updatedTags: List<String>,
+    val youtubeWatchUrl: String = "https://www.youtube.com/watch?v=$videoId",
+    val hasBackupToRestore: Boolean = true
+) {
+    val updatedFieldLabel: String
+        get() = updatedField
+}
+
+data class YtCommentItem(
+    val commentId: String,
+    val authorName: String,
+    val authorAvatarUrl: String,
+    val textDisplay: String,
+    val likeCount: Long,
+    val publishedAt: String
+)
+
+data class YtAnalyticsSummary(
+    val last28DaysViews: Long,
+    val last28DaysWatchTimeMinutes: Long,
+    val avgViewDurationSeconds: Int,
+    val avgViewPercentage: Double,
+    val subscribersGained: Long,
+    val subscribersLost: Long,
+    val topTrafficSources: List<Pair<String, Long>> = emptyList()
+)
 
 data class TrafficSourceSlice(
     val sourceName: String,
@@ -71,8 +128,8 @@ data class YtAnalyticsOverview(
     val watchTimeMinutes: Long,
     val averageViewDurationSeconds: Int,
     val averageViewPercentage: Double,
-    val impressions: Long?, // Nullable if API does not expose impressions in report
-    val impressionsCtrPercent: Double?, // Nullable when not exposed
+    val impressions: Long?,
+    val impressionsCtrPercent: Double?,
     val subscribersGained: Long,
     val subscribersLost: Long,
     val shortsViews: Long,
@@ -89,29 +146,47 @@ data class YtAnalyticsOverview(
 
 data class KeywordResearchResult(
     val keyword: String,
-    val opportunityScore: Int, // 0..100 higher is better opportunity
-    val demandScore: Int, // 0..100 based on actual views & recent upload velocity
-    val competitionScore: Int, // 0..100 higher means harder competition
+    val opportunityScore: Int,
+    val demandScore: Int,
+    val competitionScore: Int,
     val avgViewsTopResults: Long,
     val medianViewsTopResults: Long,
     val maxViewsTopResults: Long,
     val avgChannelSubscribers: Long,
-    val smallChannelOutliersCount: Int, // Channels <50K subs ranking with >avg views
+    val smallChannelOutliersCount: Int,
     val topVideos: List<YtVideoDetail>,
     val extractedTagsFromWinners: List<String>,
     val relatedKeywords: List<String>,
     val risingTopics: List<String>,
-    val methodologyNote: String = "Computed by ZEDCraft from real public YouTube search & video statistics. Not an official YouTube search volume metric."
-)
+    val methodologyNote: String = "Computed by ZEDCraft from real public YouTube search & video statistics."
+) {
+    val seedKeyword: String get() = keyword
+    val demandSignalScore: Int get() = demandScore
+    val competitionDifficultyScore: Int get() = competitionScore
+    val avgTopViews: Long get() = avgViewsTopResults
+    val medianTopViews: Long get() = medianViewsTopResults
+    val autocompleteTerms: List<String> get() = relatedKeywords
+    val topRankingVideos: List<YtVideoDetail> get() = topVideos
+    val verdict: String
+        get() = when {
+            opportunityScore >= 75 -> "High Opportunity • Strong demand with manageable competition"
+            opportunityScore >= 55 -> "Moderate Opportunity • Differentiate with a sharper curiosity hook"
+            else -> "Competitive Keyword • Target long-tail variations below"
+        }
+}
 
 data class AuditCheckItem(
     val category: String,
     val passed: Boolean,
-    val score: Int, // 0..100
+    val score: Int,
     val currentStatus: String,
     val actionableFix: String,
-    val priority: String // "HIGH", "MEDIUM", "LOW"
-)
+    val priority: String
+) {
+    val label: String get() = category
+    val status: String get() = if (passed) "PASS" else if (score >= 60) "WARN" else "FIX"
+    val detail: String get() = "$currentStatus — $actionableFix"
+}
 
 data class VideoSeoAuditResult(
     val video: YtVideoDetail,
@@ -125,16 +200,35 @@ data class VideoSeoAuditResult(
     val packagingSynergyNote: String,
     val checks: List<AuditCheckItem>,
     val prioritizedTodoList: List<String>
+) {
+    val overallSeoScore: Int get() = zedCraftScore
+}
+
+typealias VideoDeepAudit = VideoSeoAuditResult
+
+data class CompetitorComparison(
+    val primaryChannel: YtChannelDetail,
+    val competitorChannel: YtChannelDetail,
+    val primaryAvgViews: Long,
+    val competitorAvgViews: Long,
+    val primaryEngagementRate: Double,
+    val competitorEngagementRate: Double,
+    val primaryShortsPct: Int,
+    val competitorShortsPct: Int,
+    val keyTakeaways: List<String>
 )
 
 data class PolicyRiskCheck(
     val id: String,
     val title: String,
-    val status: String, // "SAFE", "REVIEW", "WARNING"
+    val status: String,
     val observation: String,
     val howToFix: String,
     val policyReference: String
-)
+) {
+    val area: String get() = title
+    val guidance: String get() = "$observation $howToFix"
+}
 
 data class ChannelHealthReport(
     val channel: YtChannelDetail,

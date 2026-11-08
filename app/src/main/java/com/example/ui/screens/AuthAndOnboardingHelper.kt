@@ -9,7 +9,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,23 +26,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +54,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -57,485 +64,551 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.credentials.ClearCredentialStateRequest
-import androidx.credentials.CredentialManager
-import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.example.R
-import com.example.ui.components.DataBadge
-import com.example.ui.components.ErrorBanner
-import com.example.ui.components.GlassCard
-import com.example.ui.theme.ZedCyan
-import com.example.ui.theme.ZedSuccess
-import com.example.ui.theme.ZedViolet
+import com.example.ui.theme.ZedAmberWarning
+import com.example.ui.theme.ZedCardBorder
+import com.example.ui.theme.ZedCyanPrimary
+import com.example.ui.theme.ZedDarkBackground
+import com.example.ui.theme.ZedEmeraldSuccess
+import com.example.ui.theme.ZedGlassSurface
+import com.example.ui.theme.ZedPurpleAccent
+import com.example.ui.theme.ZedTextMuted
+import com.example.ui.theme.ZedTextSecondary
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-import com.google.firebase.Firebase
-import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.NonCancellable
+import kotlin.coroutines.resume
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
-
-private const val TAG = "ZedCraftAuth"
-
-// Read-only YouTube scopes only — never request write access
-const val SCOPE_YOUTUBE_READONLY = "https://www.googleapis.com/auth/youtube.readonly"
-const val SCOPE_YT_ANALYTICS_READONLY = "https://www.googleapis.com/auth/yt-analytics.readonly"
-
-fun attemptAutoSignIn(
-    context: Context,
-    credentialManager: CredentialManager,
-    onAuthSuccess: () -> Unit,
-    onUnauthenticated: () -> Unit,
-    scope: CoroutineScope
-) {
-    if (Firebase.auth.currentUser != null) {
-        onAuthSuccess()
-        return
-    }
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (e: Exception) {
-        onUnauthenticated()
-        return
-    }
-
-    // Separate single-option request for silent auto sign-in
-    val googleIdOption = GetGoogleIdOption.Builder()
-        .setFilterByAuthorizedAccounts(true)
-        .setServerClientId(clientId)
-        .setAutoSelectEnabled(true)
-        .build()
-
-    val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
-
-    scope.launch {
-        try {
-            val result = credentialManager.getCredential(context, request)
-            val credential = result.credential
-            if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                Firebase.auth.signInWithCredential(authCredential).await()
-                onAuthSuccess()
-            } else {
-                onUnauthenticated()
-            }
-        } catch (e: Exception) {
-            onUnauthenticated()
-        }
-    }
-}
-
-fun onGoogleSignInClicked(
-    context: Context,
-    credentialManager: CredentialManager,
-    onAuthSuccess: () -> Unit,
-    onAuthError: (String) -> Unit,
-    scope: CoroutineScope,
-    onAuthCancelled: () -> Unit = {}
-) {
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (e: Exception) {
-        onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
-        return
-    }
-
-    // Separate single-option request for interactive sign-in
-    val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-    val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
-
-    scope.launch {
-        try {
-            val result = credentialManager.getCredential(context as Activity, request)
-            val credential = result.credential
-            if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                Firebase.auth.signInWithCredential(authCredential).await()
-                onAuthSuccess()
-            } else {
-                onAuthError("Unexpected credential type returned.")
-            }
-        } catch (e: GetCredentialCancellationException) {
-            Log.w(TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
-            onAuthCancelled()
-        } catch (e: Exception) {
-            Log.e(TAG, "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "Google Sign-In failed.")
-        }
-    }
-}
-
-fun signOutFromZedCraft(
-    credentialManager: CredentialManager,
-    scope: CoroutineScope,
-    onSignOutComplete: () -> Unit = {}
-) {
-    scope.launch {
-        withContext(NonCancellable) {
-            try {
-                credentialManager.clearCredentialState(ClearCredentialStateRequest())
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to clear credential state: ${e.message}")
-            } finally {
-                Firebase.auth.signOut()
-                onSignOutComplete()
-            }
-        }
-    }
-}
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
- * Composable launcher for authorizing read-only YouTube Data API v3 & YouTube Analytics API OAuth 2.0 scopes.
+ * Google Identity Services (`AuthorizationClient`) helper for YouTube OAuth 2.0 scopes:
+ * - `https://www.googleapis.com/auth/youtube.force-ssl` (Read & write videos, titles, descriptions, tags, thumbnails)
+ * - `https://www.googleapis.com/auth/yt-analytics.readonly` (YouTube Analytics reports)
+ *
+ * Also persists the token and connected channel metadata so ZEDCraft automatically reconnects
+ * and silently refreshes expired OAuth access tokens without asking the user to sign in repeatedly.
  */
-@Composable
-fun rememberYouTubeReadOnlyOAuthLauncher(
-    onTokenReceived: (String) -> Unit,
-    onError: (String) -> Unit
-): () -> Unit {
-    val context = LocalContext.current
-    val intentSenderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartIntentSenderForResult()
-    ) { activityResult ->
-        try {
-            val authResult = Identity.getAuthorizationClient(context)
-                .getAuthorizationResultFromIntent(activityResult.data)
-            val token = authResult.accessToken
-            if (!token.isNullOrBlank()) {
-                onTokenReceived(token)
-            } else {
-                onError("YouTube read-only authorization was cancelled or did not return an access token.")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "YouTube OAuth resolution failed", e)
-            onError(e.localizedMessage ?: "YouTube OAuth authorization failed.")
-        }
-    }
+object YouTubeOAuthHelper {
+    const val SCOPE_YOUTUBE_FORCE_SSL = "https://www.googleapis.com/auth/youtube.force-ssl"
+    const val SCOPE_YT_ANALYTICS_READONLY = "https://www.googleapis.com/auth/yt-analytics.readonly"
 
-    return {
-        val authRequest = AuthorizationRequest.builder()
+    private const val PREFS_NAME = "zedcraft_youtube_oauth_store"
+    private const val KEY_ACCESS_TOKEN = "oauth_access_token"
+    private const val KEY_SAVED_AT_MS = "oauth_saved_at_ms"
+    private const val KEY_CONNECTED_CHANNEL_ID = "connected_channel_id"
+    private const val TAG = "YouTubeOAuthHelper"
+
+    fun buildAuthorizationRequest(): AuthorizationRequest {
+        return AuthorizationRequest.builder()
             .setRequestedScopes(
                 listOf(
-                    Scope(SCOPE_YOUTUBE_READONLY),
+                    Scope(SCOPE_YOUTUBE_FORCE_SSL),
                     Scope(SCOPE_YT_ANALYTICS_READONLY)
                 )
             )
             .build()
+    }
 
-        Identity.getAuthorizationClient(context)
-            .authorize(authRequest)
-            .addOnSuccessListener { result ->
-                if (result.hasResolution()) {
-                    val pendingIntent = result.pendingIntent
-                    if (pendingIntent != null) {
-                        intentSenderLauncher.launch(
-                            IntentSenderRequest.Builder(pendingIntent.intentSender).build()
-                        )
-                    }
-                } else {
-                    val token = result.accessToken
-                    if (!token.isNullOrBlank()) {
-                        onTokenReceived(token)
+    fun saveAccessToken(context: Context, token: String, channelId: String? = null) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putString(KEY_ACCESS_TOKEN, token)
+            putLong(KEY_SAVED_AT_MS, System.currentTimeMillis())
+            if (!channelId.isNullOrBlank()) {
+                putString(KEY_CONNECTED_CHANNEL_ID, channelId)
+            }
+            apply()
+        }
+    }
+
+    fun getSavedAccessToken(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_ACCESS_TOKEN, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun getSavedChannelId(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_CONNECTED_CHANNEL_ID, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun clearSavedAuth(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().clear().apply()
+    }
+
+    /**
+     * Silently refreshes the Google OAuth 2.0 access token when the user has already granted consent.
+     * Returns the fresh token if available without launching any interactive UI.
+     */
+    suspend fun refreshAccessTokenSilently(context: Context): String? = suspendCancellableCoroutine { cont ->
+        try {
+            val client = Identity.getAuthorizationClient(context)
+            client.authorize(buildAuthorizationRequest())
+                .addOnSuccessListener { result ->
+                    if (!result.hasResolution() && !result.accessToken.isNullOrBlank()) {
+                        val token = result.accessToken!!
+                        saveAccessToken(context, token)
+                        if (cont.isActive) cont.resume(token)
                     } else {
-                        onError("No OAuth token returned. Make sure your Google account is added as a Test User on the OAuth consent screen.")
+                        if (cont.isActive) cont.resume(getSavedAccessToken(context))
                     }
                 }
+                .addOnFailureListener { err ->
+                    Log.w(TAG, "Silent token refresh failed, using cached token if valid", err)
+                    if (cont.isActive) cont.resume(getSavedAccessToken(context))
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "Silent token refresh exception", e)
+            if (cont.isActive) cont.resume(getSavedAccessToken(context))
+        }
+    }
+}
+
+@Composable
+fun rememberYouTubeOAuthLauncher(
+    onAuthorized: (accessToken: String) -> Unit,
+    onError: (message: String) -> Unit
+): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val intentSenderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { activityResult ->
+        if (activityResult.resultCode == Activity.RESULT_OK && activityResult.data != null) {
+            try {
+                val authResult = Identity.getAuthorizationClient(context)
+                    .getAuthorizationResultFromIntent(activityResult.data!!)
+                val token = authResult.accessToken
+                if (!token.isNullOrBlank()) {
+                    YouTubeOAuthHelper.saveAccessToken(context, token)
+                    onAuthorized(token)
+                } else {
+                    onError("Sign-in succeeded, but no access token was returned. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e("YouTubeOAuthLauncher", "OAuth resolution error", e)
+                onError("Could not complete YouTube sign-in. Please try again.")
             }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "AuthorizationClient.authorize failed", e)
-                onError(
-                    "YouTube OAuth scope check: ${e.localizedMessage ?: "Failed"}. You can also connect any channel by @handle below."
-                )
+        } else {
+            onError("YouTube channel connection was canceled.")
+        }
+    }
+
+    return remember(context) {
+        {
+            scope.launch {
+                try {
+                    val authRequest = YouTubeOAuthHelper.buildAuthorizationRequest()
+                    val authClient = Identity.getAuthorizationClient(context)
+                    authClient.authorize(authRequest)
+                        .addOnSuccessListener { authResult ->
+                            if (authResult.hasResolution()) {
+                                val pendingIntent = authResult.pendingIntent
+                                if (pendingIntent != null) {
+                                    intentSenderLauncher.launch(
+                                        IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                                    )
+                                } else {
+                                    onError("Unable to open Google sign-in prompt.")
+                                }
+                            } else {
+                                val token = authResult.accessToken
+                                if (!token.isNullOrBlank()) {
+                                    YouTubeOAuthHelper.saveAccessToken(context, token)
+                                    onAuthorized(token)
+                                } else {
+                                    onError("Could not retrieve access token. Please try again.")
+                                }
+                            }
+                        }
+                        .addOnFailureListener { err ->
+                            Log.e("YouTubeOAuthLauncher", "Google Identity authorize failed", err)
+                            onError("Could not connect to Google Sign-In. Please check your internet connection and try again.")
+                        }
+                } catch (e: Exception) {
+                    Log.e("YouTubeOAuthLauncher", "Unexpected OAuth launch error", e)
+                    onError("Could not start Google Sign-In. Please try again.")
+                }
             }
+        }
     }
 }
 
 @Composable
 fun OnboardingAndConnectScreen(
-    onGoogleSignInSuccess: () -> Unit,
-    onYouTubeOAuthSuccess: (String) -> Unit,
-    onConnectByHandle: (String) -> Unit,
-    onUsePublicToolsWithoutConnecting: () -> Unit,
-    onOpenPrivacyAndTerms: () -> Unit,
-    onOpenGitHubUpdater: () -> Unit
+    isLoading: Boolean,
+    errorMessage: String?,
+    onConnectOAuth: (String) -> Unit,
+    onOAuthError: (String) -> Unit,
+    onConnectPublicChannel: (String) -> Unit,
+    onDismissOnboarding: () -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val credentialManager = remember { CredentialManager.create(context) }
+    var channelQuery by remember { mutableStateOf("") }
+    var inlineValidationError by remember { mutableStateOf<String?>(null) }
 
-    var isSigningIn by remember { mutableStateOf(false) }
-    var authError by remember { mutableStateOf<String?>(null) }
-    var handleInput by remember { mutableStateOf("") }
-
-    val triggerYouTubeOAuth = rememberYouTubeReadOnlyOAuthLauncher(
-        onTokenReceived = { token ->
-            isSigningIn = false
-            onYouTubeOAuthSuccess(token)
-        },
-        onError = { msg ->
-            isSigningIn = false
-            authError = msg
-        }
+    val launchOAuth = rememberYouTubeOAuthLauncher(
+        onAuthorized = onConnectOAuth,
+        onError = onOAuthError
     )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(ZedDarkBackground)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Brand Header with GitHub Update Button
-        Row(
+        // Hero Banner Card
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCardBorder)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_zedcraft_logo),
-                    contentDescription = "ZEDCraft Logo",
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = "ZEDCraft",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            OutlinedButton(
-                onClick = onOpenGitHubUpdater,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, ZedCyan.copy(alpha = 0.5f)),
-                modifier = Modifier.testTag("onboarding_github_update_button")
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(210.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.SystemUpdateAlt,
-                    contentDescription = "Check for GitHub Updates",
-                    tint = ZedCyan,
-                    modifier = Modifier.size(16.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.img_zedcraft_hero_1794133254737),
+                    contentDescription = "ZEDCraft YouTube Creator Studio Banner",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Updates", style = MaterialTheme.typography.labelLarge)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    ZedDarkBackground.copy(alpha = 0.85f),
+                                    ZedDarkBackground
+                                )
+                            )
+                        )
+                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = "ZEDCraft",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Connect your YouTube channel to score, optimize, and apply titles, descriptions, tags, and thumbnails directly to your videos.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ZedTextSecondary
+                    )
+                }
             }
         }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // Hero Art Banner
-        Image(
-            painter = painterResource(id = R.drawable.img_zedcraft_hero_1794133254737),
-            contentDescription = "ZEDCraft Creator Studio",
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(175.dp)
-                .clip(RoundedCornerShape(22.dp)),
-            contentScale = ContentScale.Crop
-        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        DataBadge(text = "Powered by Gemini 4 Argon", isAi = true)
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Grow Smarter With Real Data & ZD AI",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "Thumbnail Vision Scorer, Title & Description Optimizer, Real Keyword Research, Video SEO Audits, Channel Health Checks, and ZD—your 12-skill YouTube strategist.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+        // Feature Pillars
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            PillarBadge(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.AutoAwesome,
+                title = "1-Tap Apply",
+                subtitle = "Live Video Edits",
+                accent = ZedCyanPrimary
+            )
+            PillarBadge(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Analytics,
+                title = "My Videos",
+                subtitle = "Audit & Score",
+                accent = ZedPurpleAccent
+            )
+            PillarBadge(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.TrendingUp,
+                title = "ZD Coach",
+                subtitle = "Growth Strategy",
+                accent = ZedEmeraldSuccess
+            )
+        }
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        if (authError != null) {
-            ErrorBanner(message = authError!!)
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-
-        // Primary Card: Google Sign-In + YouTube Channel Connect
-        GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.6f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Security,
-                    contentDescription = null,
-                    tint = ZedCyan,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Connect Your YouTube Channel",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Uses Google Sign-In & OAuth 2.0 read-only scopes (youtube.readonly & yt-analytics.readonly). ZEDCraft never modifies or deletes your videos.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Button(
-                onClick = {
-                    isSigningIn = true
-                    authError = null
-                    onGoogleSignInClicked(
-                        context = context,
-                        credentialManager = credentialManager,
-                        onAuthSuccess = {
-                            onGoogleSignInSuccess()
-                            triggerYouTubeOAuth()
-                        },
-                        onAuthError = { msg ->
-                            isSigningIn = false
-                            authError = msg
-                        },
-                        scope = scope,
-                        onAuthCancelled = {
-                            isSigningIn = false
-                        }
-                    )
-                },
-                enabled = !isSigningIn,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("google_sign_in_button"),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                if (isSigningIn) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text("Connecting with Google...")
-                } else {
-                    Icon(Icons.Default.AccountCircle, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Sign in with Google & Connect Channel", fontWeight = FontWeight.Bold)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Quick connect by @handle or Channel ID
-            OutlinedTextField(
-                value = handleInput,
-                onValueChange = { handleInput = it },
-                label = { Text("Or connect by @handle, Channel ID, or Video Link") },
-                placeholder = { Text("e.g. @mkbhd or UC...") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("onboarding_handle_input"),
-                shape = RoundedCornerShape(12.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = {
-                    if (handleInput.isNotBlank()) {
-                        onConnectByHandle(handleInput)
-                    } else {
-                        authError = "Enter a channel @handle, Channel ID, or video URL first."
+        // Primary Option: Connect YouTube Channel via OAuth 2.0
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.35f))
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(ZedCyanPrimary.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Connect YouTube Channel",
+                            tint = ZedCyanPrimary
+                        )
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("connect_handle_button"),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, ZedCyan.copy(alpha = 0.5f))
-            ) {
-                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Load Channel Dashboard by @Handle / Link")
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Connect Your YouTube Channel",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Load your uploaded videos, optimize metadata with ZD, and apply changes directly to YouTube.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ZedTextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Button(
+                    onClick = launchOAuth,
+                    enabled = !isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("oauth_connect_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ZedCyanPrimary,
+                        contentColor = ZedDarkBackground
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Connect YouTube Channel",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Public tools option without connecting
-        GlassCard(accentBorderColor = ZedViolet.copy(alpha = 0.45f)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LockOpen,
-                    contentDescription = null,
-                    tint = ZedViolet,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Use Public Tools Without Connecting",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface
+        // Secondary Option: Public Channel Lookup
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(ZedPurpleAccent.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = "Analyze Channel by Handle",
+                            tint = ZedPurpleAccent
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Inspect Any Public Channel",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Enter a @handle, Channel ID (UC...), or video URL to audit any public channel.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ZedTextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = channelQuery,
+                    onValueChange = {
+                        channelQuery = it
+                        inlineValidationError = null
+                    },
+                    placeholder = {
+                        Text(
+                            text = "e.g., @mkbhd, @MrBeast, or video URL",
+                            color = ZedTextMuted
+                        )
+                    },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Channel Input",
+                            tint = ZedCyanPrimary
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("channel_lookup_input"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ZedCyanPrimary,
+                        unfocusedBorderColor = ZedCardBorder,
+                        focusedContainerColor = ZedDarkBackground.copy(alpha = 0.55f),
+                        unfocusedContainerColor = ZedDarkBackground.copy(alpha = 0.55f)
                     )
+                )
+
+                if (inlineValidationError != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Access Thumbnail Scorer, Title Optimizer, Tags Generator, Keyword Research, and ZD AI immediately.",
+                        text = inlineValidationError!!,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = ZedAmberWarning
                     )
                 }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = onUsePublicToolsWithoutConnecting,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("public_tools_button"),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Continue to Public Optimization Tools")
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val trimmed = channelQuery.trim()
+                        if (trimmed.length < 2) {
+                            inlineValidationError = "Please enter a valid @handle, Channel ID, or YouTube URL."
+                        } else {
+                            onConnectPublicChannel(trimmed)
+                        }
+                    },
+                    enabled = !isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("connect_public_channel_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ZedPurpleAccent,
+                        contentColor = Color.White
+                    )
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Loading Channel Data...")
+                    } else {
+                        Text(
+                            text = "Audit Public Channel",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        TextButton(
-            onClick = onOpenPrivacyAndTerms,
-            modifier = Modifier.testTag("privacy_terms_button")
+        if (!errorMessage.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+            ) {
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFFFB4AB),
+                    modifier = Modifier.padding(14.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedButton(
+            onClick = onDismissOnboarding,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("skip_onboarding_button"),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, ZedCardBorder)
         ) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(15.dp), tint = ZedCyan)
-            Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "YouTube API Terms of Service & ZEDCraft Privacy Policy",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "Explore Optimize, Research & ZD Tools First",
+                color = ZedTextSecondary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun PillarBadge(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accent: Color
+) {
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .border(1.dp, ZedCardBorder, RoundedCornerShape(16.dp)),
+        color = ZedGlassSurface
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 12.dp, horizontal = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = accent,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = ZedTextMuted,
+                textAlign = TextAlign.Center
             )
         }
     }

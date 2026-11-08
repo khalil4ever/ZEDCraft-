@@ -2,7 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ZEDCraft 2026 Brand Palette (Dark-First Creator Studio)
+// ZEDCraft 2026 Brand Palette (Dark Cyan Glass Creator Studio)
 val ZedBgPrimary = Color(0xFF070A12)
 val ZedBgSecondary = Color(0xFF0E1322)
 val ZedSurfaceCard = Color(0xFF131A2E)
@@ -22,6 +22,17 @@ val ZedError = Color(0xFFEF4444)
 val ZedTextPrimary = Color(0xFFF8FAFC)
 val ZedTextSecondary = Color(0xFF94A3B8)
 val ZedTextMuted = Color(0xFF64748B)
+
+// Semantic aliases used across ZEDCraft screens
+val ZedDarkBackground = ZedBgPrimary
+val ZedGlassSurface = ZedSurfaceCard
+val ZedDarkSurfaceElevated = ZedSurfaceElevated
+val ZedCardBorder = ZedGlassBorder
+val ZedCyanPrimary = ZedCyan
+val ZedPurpleAccent = ZedViolet
+val ZedEmeraldSuccess = ZedSuccess
+val ZedAmberWarning = ZedWarning
+val ZedCoralError = ZedError
 
 // Light Mode Palette
 val ZedLightBg = Color(0xFFF8FAFC)

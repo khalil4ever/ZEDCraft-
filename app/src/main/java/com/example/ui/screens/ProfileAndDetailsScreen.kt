@@ -1,16 +1,18 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.BackHandler
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,694 +24,561 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LinkOff
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdateAlt
-import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.VerifiedUser
-import com.example.BuildConfig
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.ai.ZedCraftAiConfig
-import com.example.data.model.SavedWorkItem
-import com.example.data.model.WorkType
+import com.example.BuildConfig
+import com.example.R
+import com.example.data.local.ChecklistItemEntity
+import com.example.data.local.SavedIdeaEntity
 import com.example.data.remote.YouTubeApiClient
-import com.example.ui.components.AnimatedScoreRing
-import com.example.ui.components.DataBadge
-import com.example.ui.components.EmptyStateCard
-import com.example.ui.components.ErrorBanner
-import com.example.ui.components.GlassCard
-import com.example.ui.components.LoadingBanner
-import com.example.ui.components.SectionHeader
-import com.example.ui.components.StatusPill
-import com.example.ui.components.SubScoreBar
-import com.example.ui.components.scoreColor
-import com.example.ui.theme.ZedCyan
-import com.example.ui.theme.ZedError
-import com.example.ui.theme.ZedSuccess
-import com.example.ui.theme.ZedViolet
-import com.example.ui.theme.ZedWarning
+import com.example.ui.theme.ZedAmberWarning
+import com.example.ui.theme.ZedCardBorder
+import com.example.ui.theme.ZedCoralError
+import com.example.ui.theme.ZedCyanPrimary
+import com.example.ui.theme.ZedDarkBackground
+import com.example.ui.theme.ZedDarkSurfaceElevated
+import com.example.ui.theme.ZedEmeraldSuccess
+import com.example.ui.theme.ZedGlassSurface
+import com.example.ui.theme.ZedPurpleAccent
+import com.example.ui.theme.ZedTextMuted
+import com.example.ui.theme.ZedTextSecondary
 import com.example.ui.viewmodel.DetailDestination
+import com.example.ui.viewmodel.OptimizeSubTab
 import com.example.ui.viewmodel.ZedCraftUiState
 import com.example.ui.viewmodel.ZedCraftViewModel
 import java.util.Locale
-import kotlinx.coroutines.launch
 
 @Composable
 fun ProfileScreen(
     uiState: ZedCraftUiState,
-    cachedItemsCount: Int,
-    viewModel: ZedCraftViewModel,
-    onRequestYouTubeOAuth: () -> Unit
+    savedIdeasCount: Int,
+    checklistCompletedCount: Int,
+    checklistTotalCount: Int,
+    viewModel: ZedCraftViewModel
 ) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val scope = rememberCoroutineScope()
-    val credentialManager = remember { androidx.credentials.CredentialManager.create(context) }
-
-    var selectedWorkFilter by rememberSaveable { mutableStateOf("ALL") }
-    var channelLookupQuery by rememberSaveable { mutableStateOf("") }
-    var showDeleteAllDialog by remember { mutableStateOf(false) }
-
-    val workFilters = listOf(
-        "ALL" to "All Saved",
-        WorkType.THUMBNAIL_SCORE to "Thumbnails",
-        WorkType.TITLE_OPTIMIZER to "Titles",
-        WorkType.DESCRIPTION_OPTIMIZER to "Descriptions",
-        WorkType.TAGS_GENERATOR to "Tags",
-        WorkType.KEYWORD_RESEARCH to "Keywords",
-        WorkType.VIDEO_AUDIT to "Audits",
-        WorkType.TREND_IDEA to "Ideas"
+    val launchOAuth = rememberYouTubeOAuthLauncher(
+        onAuthorized = { token -> viewModel.connectWithOAuthToken(token) },
+        onError = { msg -> viewModel.setOAuthError(msg) }
     )
-
-    val filteredWork = remember(uiState.savedWorkItems, selectedWorkFilter) {
-        if (selectedWorkFilter == "ALL") uiState.savedWorkItems
-        else uiState.savedWorkItems.filter { it.workType == selectedWorkFilter }
-    }
-
-    if (showDeleteAllDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteAllDialog = false },
-            title = { Text("Delete All ZEDCraft Data?") },
-            text = {
-                Text(
-                    "This permanently deletes your saved optimizations, competitor benchmarks, ZD chat history, connected channel records, and local YouTube API cache. You can reconnect your channel at any time."
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDeleteAllDialog = false
-                        viewModel.deleteAllUserAndLocalData()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ZedError)
-                ) {
-                    Text("Delete Everything")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteAllDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
+            .background(ZedDarkBackground),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 36.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. Account & Channel Switcher Card
+        // Connected Channel Card
         item {
-            SectionHeader(
-                title = "Account & Channels",
-                subtitle = "Manage your Google Sign-In, connected YouTube channels, and OAuth access."
-            )
-        }
-
-        item {
-            GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.5f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = null,
-                        tint = ZedCyan,
-                        modifier = Modifier.size(42.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    val ch = uiState.activeChannel
+                    if (ch != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(
+                                model = ch.thumbnailUrl,
+                                contentDescription = ch.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clip(CircleShape)
+                                    .background(ZedDarkSurfaceElevated)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = ch.title,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${ch.handle} • ${YouTubeApiClient.formatCompact(ch.subscriberCount)} subscribers",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ZedCyanPrimary
+                                )
+                                Text(
+                                    text = if (ch.isOAuthMine) {
+                                        "Connected via YouTube Account • Live Video Updates Enabled"
+                                    } else {
+                                        "Public Channel Mode • Connect account to apply live video edits"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (ch.isOAuthMine) ZedEmeraldSuccess else ZedTextMuted
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = { viewModel.refreshActiveChannel() },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("profile_sync_channel_button"),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.5f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudSync,
+                                    contentDescription = null,
+                                    tint = ZedCyanPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Refresh Videos", color = ZedCyanPrimary)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.disconnectChannel()
+                                    Toast.makeText(context, "YouTube channel disconnected", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("profile_disconnect_channel_button"),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, ZedCoralError.copy(alpha = 0.5f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LinkOff,
+                                    contentDescription = null,
+                                    tint = ZedCoralError,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Disconnect channel", color = ZedCoralError)
+                            }
+                        }
+                        if (!ch.isOAuthMine) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = launchOAuth,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ZedCyanPrimary,
+                                    contentColor = ZedDarkBackground
+                                )
+                            ) {
+                                Text(
+                                    text = "Connect YouTube Channel for Live Video Edits",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    } else {
                         Text(
-                            text = if (uiState.isSignedInWithGoogle) uiState.userDisplayName else "Guest Creator Mode",
+                            text = "No YouTube Channel Connected",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (uiState.isSignedInWithGoogle) {
-                                "${uiState.userEmail} • Cloud Sync Active"
-                            } else {
-                                "Sign in with Google to sync saved work & authorize YouTube Analytics."
-                            },
+                            text = "Connect your YouTube channel to load your uploaded videos and apply optimized titles, descriptions, tags, and thumbnails directly to YouTube.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = ZedTextSecondary
                         )
-                    }
-                    if (uiState.isSignedInWithGoogle) {
-                        OutlinedButton(
-                            onClick = {
-                                signOutFromZedCraft(
-                                    credentialManager = credentialManager,
-                                    scope = scope,
-                                    onSignOutComplete = {
-                                        viewModel.showToast("Signed out of Google.")
-                                    }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = launchOAuth,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("profile_connect_youtube_button"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ZedCyanPrimary,
+                                    contentColor = ZedDarkBackground
                                 )
-                            }
-                        ) {
-                            Text("Sign Out")
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                onGoogleSignInClicked(
-                                    context = context,
-                                    credentialManager = credentialManager,
-                                    onAuthSuccess = {
-                                        viewModel.showToast("Signed in with Google!")
-                                        onRequestYouTubeOAuth()
-                                    },
-                                    onAuthError = { msg ->
-                                        viewModel.showToast(msg)
-                                    },
-                                    scope = scope
-                                )
-                            }
-                        ) {
-                            Text("Google Sign-In")
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Multi-Channel Switcher
-                if (uiState.connectedChannels.isNotEmpty()) {
-                    Text(
-                        text = "Connected Channels (${uiState.connectedChannels.size}) — Tap to Switch:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    uiState.connectedChannels.forEach { ch ->
-                        val isCurrent = uiState.activeChannel?.channelId == ch.channelId
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                            else MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isCurrent) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { viewModel.switchActiveChannel(ch) }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                AsyncImage(
-                                    model = ch.thumbnailUrl,
-                                    contentDescription = ch.title,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = ch.title,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "${YouTubeApiClient.formatCompact(ch.subscriberCount)} subs • Health ${ch.healthScore}/100",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                if (isCurrent) {
-                                    DataBadge(text = "Active", isAi = false, colorOverride = ZedSuccess)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                }
-                                IconButton(onClick = { viewModel.disconnectChannel(ch.channelId) }) {
-                                    Icon(
-                                        Icons.Default.LinkOff,
-                                        contentDescription = "Disconnect ${ch.title}",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                Text("Connect YouTube Channel", fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.setShowOnboardingSheet(true) },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, ZedCardBorder)
+                            ) {
+                                Text("Public Lookup", color = ZedTextSecondary)
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
-                }
-
-                // Add or Authorize Another Channel
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = channelLookupQuery,
-                        onValueChange = { channelLookupQuery = it },
-                        label = { Text("Connect Channel by @handle or ID") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    Button(
-                        onClick = {
-                            viewModel.connectChannelByQuery(channelLookupQuery)
-                            channelLookupQuery = ""
-                        },
-                        modifier = Modifier.height(52.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Connect")
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onRequestYouTubeOAuth,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.VerifiedUser, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Authorize YouTube Read-Only OAuth 2.0")
                 }
             }
         }
 
-        // 2. Saved Work & Version Comparison Section
+        // Creator Power Tools Suite
         item {
-            SectionHeader(
-                title = "Saved Work & History (${uiState.savedWorkItems.size})",
-                subtitle = "Every score, title rewrite, tag set, keyword report, and audit is saved automatically.",
-                badgeText = if (uiState.isSignedInWithGoogle) "Cloud + Offline" else "Local Room DB",
-                isAiBadge = false
+            Text(
+                text = "Creator Power Tools",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
             )
         }
 
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ProfileNavRow(
+                icon = Icons.Default.HealthAndSafety,
+                title = "Channel Health & Policy Audit",
+                subtitle = "360° health score, upload schedule & YPP compliance",
+                accent = ZedEmeraldSuccess,
+                onClick = { viewModel.openDetailScreen(DetailDestination.ChannelHealthAudit) }
+            )
+        }
+
+        item {
+            ProfileNavRow(
+                icon = Icons.Default.AttachMoney,
+                title = "Revenue & Sponsor Deal Calculator",
+                subtitle = "Estimate AdSense RPM, Shorts revenue & sponsor deal pricing",
+                accent = ZedAmberWarning,
+                onClick = { viewModel.openDetailScreen(DetailDestination.RevenueAndSponsorCalculator) }
+            )
+        }
+
+        item {
+            ProfileNavRow(
+                icon = Icons.Default.Checklist,
+                title = "Pre-Publish & YPP Growth Checklists",
+                subtitle = "$checklistCompletedCount of $checklistTotalCount creator milestones completed",
+                accent = ZedCyanPrimary,
+                onClick = { viewModel.openDetailScreen(DetailDestination.LaunchChecklist) }
+            )
+        }
+
+        item {
+            ProfileNavRow(
+                icon = Icons.Default.Bookmark,
+                title = "Saved Ideas & Templates Vault",
+                subtitle = "$savedIdeasCount saved titles, scripts, hooks & keyword packs",
+                accent = ZedPurpleAccent,
+                onClick = { viewModel.openDetailScreen(DetailDestination.SavedVault) }
+            )
+        }
+
+        // App Updates Card (In-App Auto-Update)
+        item {
+            Text(
+                text = "App Updates",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.35f))
             ) {
-                workFilters.forEach { (key, label) ->
-                    FilterChip(
-                        selected = selectedWorkFilter == key,
-                        onClick = { selectedWorkFilter = key },
-                        label = { Text(label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                            selectedLabelColor = MaterialTheme.colorScheme.primary
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(ZedCyanPrimary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdateAlt,
+                                    contentDescription = "App Updates",
+                                    tint = ZedCyanPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "ZEDCraft App Updates",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Installed version: v${BuildConfig.VERSION_NAME}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ZedTextSecondary
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { viewModel.checkForGitHubUpdates(isSilent = false) },
+                            enabled = !uiState.isCheckingUpdate && !uiState.isDownloadingUpdate,
+                            modifier = Modifier.testTag("check_github_updates_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ZedCyanPrimary,
+                                contentColor = ZedDarkBackground
+                            )
+                        ) {
+                            if (uiState.isCheckingUpdate) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = ZedDarkBackground
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Checking...", style = MaterialTheme.typography.labelMedium)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Check Updates",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    val rel = uiState.githubReleaseInfo
+                    if (rel != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = ZedDarkSurfaceElevated,
+                            border = BorderStroke(
+                                1.dp,
+                                if (rel.isUpdateAvailable) ZedEmeraldSuccess.copy(alpha = 0.5f) else ZedCardBorder
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = rel.releaseTitle,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (rel.isUpdateAvailable) ZedEmeraldSuccess else Color.White
+                                    )
+                                    Text(
+                                        text = if (rel.isUpdateAvailable) "UPDATE AVAILABLE" else "UP TO DATE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (rel.isUpdateAvailable) ZedEmeraldSuccess else ZedCyanPrimary
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = rel.releaseNotes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ZedTextSecondary,
+                                    maxLines = 5,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (rel.isUpdateAvailable && !rel.apkDownloadUrl.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Button(
+                                        onClick = { viewModel.startInAppUpdateDownload() },
+                                        enabled = !uiState.isDownloadingUpdate,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("profile_install_update_now_button"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = ZedEmeraldSuccess,
+                                            contentColor = ZedDarkBackground
+                                        )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SystemUpdateAlt,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Update Now (${rel.latestTag})",
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (!uiState.updateCheckError.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = uiState.updateCheckError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ZedAmberWarning
                         )
-                    )
+                    }
                 }
             }
         }
 
-        // Side-by-Side Compare Card when 1 or 2 items are selected
-        if (uiState.selectedCompareItemA != null || uiState.selectedCompareItemB != null) {
-            item {
-                val itemA = uiState.selectedCompareItemA
-                val itemB = uiState.selectedCompareItemB
-                GlassCard(accentBorderColor = ZedViolet) {
+        // Settings, Credits & Legal
+        item {
+            Text(
+                text = "About & Preferences",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        item {
+            ProfileNavRow(
+                icon = Icons.Default.Info,
+                title = "Credits",
+                subtitle = "About ZEDCraft & Timothy Khalil Tembo",
+                accent = ZedCyanPrimary,
+                onClick = { viewModel.openDetailScreen(DetailDestination.Credits) }
+            )
+        }
+
+        item {
+            ProfileNavRow(
+                icon = Icons.Default.Policy,
+                title = "Privacy Policy & YouTube Terms",
+                subtitle = "Data protection, local undo backups & official terms",
+                accent = ZedEmeraldSuccess,
+                onClick = { viewModel.openDetailScreen(DetailDestination.PrivacyAndTerms) }
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCardBorder)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CompareArrows, contentDescription = null, tint = ZedViolet)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Version Comparison",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                            Icon(
+                                imageVector = Icons.Default.DarkMode,
+                                contentDescription = "Dark Theme",
+                                tint = ZedCyanPrimary
                             )
-                        }
-                        TextButton(onClick = { viewModel.clearCompareSelection() }) {
-                            Text("Clear")
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        CompareSlotColumn(
-                            slotLabel = "Version A",
-                            item = itemA,
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompareSlotColumn(
-                            slotLabel = "Version B",
-                            item = itemB,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-        }
-
-        if (filteredWork.isEmpty()) {
-            item {
-                EmptyStateCard(
-                    title = "No Saved Optimizations Yet",
-                    message = "Run the Thumbnail Scorer, Title Optimizer, Keyword Research, or Video Audit—your results will appear here for comparison and export."
-                )
-            }
-        } else {
-            items(filteredWork, key = { it.id }) { item ->
-                val isSelectedForCompare =
-                    uiState.selectedCompareItemA?.id == item.id || uiState.selectedCompareItemB?.id == item.id
-
-                GlassCard(
-                    accentBorderColor = if (isSelectedForCompare) ZedViolet else null,
-                    onClick = { viewModel.openDetail(DetailDestination.SavedWorkDetail(item)) }
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DataBadge(text = item.workType, isAi = item.workType != WorkType.KEYWORD_RESEARCH)
-                        if (item.score > 0) {
-                            DataBadge(
-                                text = "Score: ${item.score}/100",
-                                isAi = true,
-                                colorOverride = scoreColor(item.score)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = item.subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = { viewModel.toggleSelectForCompare(item) },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Default.CompareArrows, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                if (isSelectedForCompare) "Selected" else "Compare",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                        Row {
-                            IconButton(
-                                onClick = {
-                                    val exportText = "${item.title}\n${item.subtitle}\n\n${item.payloadJson}"
-                                    clipboard.setText(AnnotatedString(exportText))
-                                    viewModel.showToast("Copied saved item!")
-                                }
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = ZedCyan)
-                            }
-                            IconButton(
-                                onClick = {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_SUBJECT, "ZEDCraft: ${item.title}")
-                                        putExtra(
-                                            Intent.EXTRA_TEXT,
-                                            "ZEDCraft (${item.workType}) — ${item.title}\n${item.subtitle}\n\n${item.payloadJson}"
-                                        )
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Export ZEDCraft Work"))
-                                }
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = "Export/Share")
-                            }
-                            IconButton(onClick = { viewModel.deleteSavedWorkItem(item) }) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete")
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Dark Cyan Glass Theme",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Default 2026 OLED studio contrast",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ZedTextSecondary
+                                )
                             }
                         }
-                    }
-                }
-            }
-        }
-
-        // 3. App Settings, Setup Guide, Cache & Privacy
-        item {
-            SectionHeader(
-                title = "Settings, API Setup & Privacy",
-                subtitle = "Configure theme, inspect API keys, manage offline cache, or delete data."
-            )
-        }
-
-        item {
-            GlassCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (uiState.isDarkTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
-                            contentDescription = null,
-                            tint = ZedCyan
+                        Switch(
+                            checked = uiState.isDarkTheme,
+                            onCheckedChange = { viewModel.toggleTheme(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = ZedDarkBackground,
+                                checkedTrackColor = ZedCyanPrimary
+                            )
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Dark Studio Theme",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Switch between Dark Studio and Daylight mode",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
-                    Switch(
-                        checked = uiState.isDarkTheme,
-                        onCheckedChange = { viewModel.toggleDarkTheme() },
-                        modifier = Modifier.testTag("theme_switch")
-                    )
-                }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                // App Updates Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.openDetail(DetailDestination.GitHubUpdater) }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.SystemUpdateAlt, contentDescription = null, tint = ZedCyan)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "App Updates",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Installed v${BuildConfig.VERSION_NAME} • Official Release Channel",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Button(
+                    OutlinedButton(
                         onClick = {
-                            viewModel.openDetail(DetailDestination.GitHubUpdater)
-                            viewModel.checkForGitHubUpdates()
+                            viewModel.clearRoomCache()
+                            Toast.makeText(context, "Offline cache refreshed", Toast.LENGTH_SHORT).show()
                         },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.testTag("profile_check_updates_button")
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, ZedCardBorder)
                     ) {
-                        Text("Check Updates", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Setup Guide Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.openDetail(DetailDestination.SetupGuide) }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Build, contentDescription = null, tint = ZedCyan)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "YouTube API & OAuth Setup Guide",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = ZedTextSecondary,
+                            modifier = Modifier.size(16.dp)
                         )
-                        Text(
-                            text = if (uiState.isYouTubeApiKeyConfigured) {
-                                "YOUTUBE_API_KEY configured • Tap for Google Cloud & OAuth details"
-                            } else {
-                                "YOUTUBE_API_KEY not detected — Tap for step-by-step setup instructions"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (uiState.isYouTubeApiKeyConfigured) ZedSuccess else ZedWarning
-                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Clear Cached Video Lookups", color = ZedTextSecondary)
                     }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Privacy Policy & YouTube Terms Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.openDetail(DetailDestination.PrivacyAndTerms) }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Policy, contentDescription = null, tint = ZedViolet)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Privacy Policy & YouTube API Terms",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Read-only scope disclosures, Google Privacy Policy & data transparency",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Local Cache Management
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Storage, contentDescription = null, tint = ZedCyan)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Local YouTube Quota Cache",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "$cachedItemsCount API responses cached locally to save YouTube quota",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    OutlinedButton(onClick = { viewModel.clearLocalApiCache() }) {
-                        Text("Clear Cache")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-                Button(
-                    onClick = { showDeleteAllDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ZedError.copy(alpha = 0.18f),
-                        contentColor = ZedError
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.DeleteForever, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Delete All Stored Data (Cloud + Local)", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -717,357 +586,517 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun CompareSlotColumn(
-    slotLabel: String,
-    item: SavedWorkItem?,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Text(
-                text = slotLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = ZedViolet,
-                fontWeight = FontWeight.Bold
-            )
-            if (item == null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Tap 'Compare' on any saved card below",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Score: ${item.score}/100",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = scoreColor(item.score),
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-// ============================================================================
-// DETAIL SCREENS WITH BACKHANDLER
-// ============================================================================
-
-@Composable
-private fun DetailTopBar(
+private fun ProfileNavRow(
+    icon: ImageVector,
     title: String,
     subtitle: String,
-    onBack: () -> Unit
+    accent: Color,
+    onClick: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+        border = BorderStroke(1.dp, ZedCardBorder)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier.testTag("detail_back_button")
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accent.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back"
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = accent,
+                    modifier = Modifier.size(22.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color = ZedTextSecondary
                 )
             }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+// =========================================================================
+// CREDITS SCREEN (Replaces Setup Screen)
+// =========================================================================
+
 @Composable
-fun VideoAnalyzerAndAuditScreen(
+fun CreditsScreen(
     uiState: ZedCraftUiState,
     viewModel: ZedCraftViewModel
 ) {
-    BackHandler { viewModel.closeDetail() }
-    val clipboard = LocalClipboardManager.current
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        DetailTopBar(
-            title = "Video Analyzer & One-Tap SEO Audit",
-            subtitle = "Real YouTube Data API v3 telemetry + ZEDCraft 6-Point Packaging Audit",
-            onBack = { viewModel.closeDetail() }
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                GlassCard {
-                    OutlinedTextField(
-                        value = uiState.analyzedVideoInput,
-                        onValueChange = { viewModel.updateAnalyzedVideoInput(it) },
-                        label = { Text("Paste any YouTube Video Link or 11-char Video ID") },
-                        singleLine = true,
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ZedDarkBackground)
+            .testTag("zedcraft_credits_screen"),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        // ZEDCraft Logo + Title + Subtitle
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    ZedCyanPrimary.copy(alpha = 0.25f),
+                                    ZedPurpleAccent.copy(alpha = 0.25f)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_zedcraft_logo),
+                        contentDescription = "ZEDCraft Logo",
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("video_audit_url_input"),
-                        shape = RoundedCornerShape(14.dp)
+                            .size(84.dp)
+                            .clip(RoundedCornerShape(22.dp))
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Button(
-                        onClick = { viewModel.analyzeAndAuditVideo() },
-                        enabled = !uiState.isAnalyzingVideo,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("run_video_audit_btn"),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Run Real Video Analyzer & SEO Audit", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "ZEDCraft",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Slowly developed with passion by Timothy Khalil Tembo",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = ZedCyanPrimary,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        // Card: "About the creator"
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "About the creator",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    CreatorBulletRow(text = "\uD83C\uDDFF\uD83C\uDDF2 Based in Zambia")
+                    CreatorBulletRow(text = "Logo designer and AI educator")
+                    CreatorBulletRow(text = "Into YouTube growth and social media growth")
+                    CreatorBulletRow(text = "Founder of AI Visual CRAFT")
+                }
+            }
+        }
+
+        // Line: "Built to help creators grow, for free."
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = ZedDarkSurfaceElevated,
+                border = BorderStroke(1.dp, ZedCardBorder)
+            ) {
+                Text(
+                    text = "Built to help creators grow, for free.",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = ZedEmeraldSuccess,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 18.dp)
+                )
+            }
+        }
+
+        // Check for Updates button
+        item {
+            OutlinedButton(
+                onClick = { viewModel.checkForGitHubUpdates(isSilent = false) },
+                enabled = !uiState.isCheckingUpdate && !uiState.isDownloadingUpdate,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("credits_check_updates_button"),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.45f))
+            ) {
+                if (uiState.isCheckingUpdate) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = ZedCyanPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Checking for updates...", color = ZedCyanPrimary)
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.SystemUpdateAlt,
+                        contentDescription = null,
+                        tint = ZedCyanPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Check for Updates",
+                        color = ZedCyanPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        // Footer: "© 2026 ZEDCraft" and current app version number
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "© 2026 ZEDCraft",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ZedTextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Version ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ZedTextMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreatorBulletRow(text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(ZedCyanPrimary)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            color = Color.White
+        )
+    }
+}
+
+// =========================================================================
+// DETAIL SCREEN: VIDEO DEEP ANALYZER
+// =========================================================================
+
+@Composable
+fun VideoDeepAnalyzerScreen(
+    uiState: ZedCraftUiState,
+    viewModel: ZedCraftViewModel
+) {
+    var manualUrl by remember { mutableStateOf("") }
+    val audit = uiState.inspectedVideoAudit
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ZedDarkBackground),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCardBorder)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = manualUrl,
+                            onValueChange = { manualUrl = it },
+                            placeholder = { Text("Paste another YouTube Video URL or ID", color = ZedTextMuted) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ZedCyanPrimary,
+                                unfocusedBorderColor = ZedCardBorder
+                            )
+                        )
+                        Button(
+                            onClick = { viewModel.analyzeVideoDeeply(manualUrl) },
+                            enabled = !uiState.isLoadingVideoAudit && manualUrl.isNotBlank(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ZedCyanPrimary,
+                                contentColor = ZedDarkBackground
+                            )
+                        ) {
+                            Text("Audit", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
+        }
 
-            if (uiState.isAnalyzingVideo) {
-                item {
-                    LoadingBanner(message = "Fetching video snippet, statistics, contentDetails & running SEO checks...")
+        if (uiState.isLoadingVideoAudit) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = ZedCyanPrimary)
                 }
             }
+        }
 
-            uiState.videoAnalyzerError?.let { err ->
-                item {
-                    ErrorBanner(
-                        message = err,
-                        onActionLabel = if (!uiState.isYouTubeApiKeyConfigured) "Open Setup Guide" else null,
-                        onAction = if (!uiState.isYouTubeApiKeyConfigured) {
-                            { viewModel.openDetail(DetailDestination.SetupGuide) }
-                        } else null
-                    )
-                }
+        if (!uiState.videoAuditError.isNullOrBlank()) {
+            item {
+                Text(
+                    text = uiState.videoAuditError,
+                    color = ZedCoralError,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
+        }
 
-            val video = uiState.analyzedVideo
-            val audit = uiState.videoAuditResult
-            if (video != null && audit != null) {
-                item {
-                    GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.6f)) {
+        if (audit != null) {
+            val v = audit.video
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         AsyncImage(
-                            model = video.highResThumbnailUrl.ifBlank { video.thumbnailUrl },
-                            contentDescription = video.title,
+                            model = v.highResThumbnailUrl,
+                            contentDescription = v.title,
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(190.dp)
-                                .clip(RoundedCornerShape(14.dp)),
-                            contentScale = ContentScale.Crop
+                                .clip(RoundedCornerShape(14.dp))
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = video.title,
+                            text = v.title,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${video.channelTitle} • Published ${video.publishedAt.take(10)}",
+                            text = "${YouTubeApiClient.formatCompact(v.viewCount)} views • ${YouTubeApiClient.formatCompact(v.likeCount)} likes • ${YouTubeApiClient.formatCompact(v.commentCount)} comments • ${YouTubeApiClient.formatDuration(v.durationSeconds)}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = ZedCyanPrimary
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CompetitorStatPill("Views", YouTubeApiClient.formatCompact(video.viewCount))
-                            CompetitorStatPill("Likes", YouTubeApiClient.formatCompact(video.likeCount))
-                            CompetitorStatPill("Comments", YouTubeApiClient.formatCompact(video.commentCount))
-                            CompetitorStatPill(
-                                "Engagement",
-                                String.format(Locale.US, "%.2f%%", video.engagementRatePercent)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    viewModel.selectOptimizeSubTab(0)
-                                    viewModel.loadThumbnailFromVideoUrlOrDetail(video.videoId, video.title)
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Vision Score Thumbnail")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    viewModel.selectOptimizeSubTab(1)
-                                    viewModel.updateTitleInputs(video.title, video.channelTitle)
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Title, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Optimize Title")
-                            }
-                        }
-                    }
-                }
 
-                // Overall Audit Score & Prioritized To-Do List
-                item {
-                    GlassCard(accentBorderColor = ZedViolet.copy(alpha = 0.55f)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AnimatedScoreRing(
-                                score = audit.zedCraftScore,
-                                label = "ZEDCraft Audit Score",
-                                isAiEstimate = false
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                DataBadge(text = "ZEDCraft Computed Score", isAi = false)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = audit.packagingSynergyNote,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Prioritized Action Checklist:",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        audit.prioritizedTodoList.forEachIndexed { idx, todo ->
-                            Text(
-                                text = "${idx + 1}. $todo",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(vertical = 3.dp)
-                            )
-                        }
-                    }
-                }
-
-                // 6 Individual Audit Check Cards
-                items(audit.checks) { check ->
-                    GlassCard {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = check.category,
+                                text = "ZEDCraft Packaging & SEO Score",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
-                            StatusPill(status = if (check.passed) "PASSED" else check.priority)
+                            Text(
+                                text = "${audit.overallSeoScore}/100",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (audit.overallSeoScore >= 75) ZedEmeraldSuccess else ZedAmberWarning
+                            )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        SubScoreBar(
-                            label = check.currentStatus,
-                            score = check.score,
-                            note = check.actionableFix
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { audit.overallSeoScore / 100f },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = if (audit.overallSeoScore >= 75) ZedEmeraldSuccess else ZedAmberWarning,
+                            trackColor = ZedDarkBackground
                         )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(
+                            onClick = {
+                                viewModel.selectTargetVideoForOptimize(
+                                    video = v,
+                                    subTab = OptimizeSubTab.Title,
+                                    navigateToOptimize = true,
+                                    autoRunOptimizer = true
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("analyzer_optimize_this_video_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ZedCyanPrimary,
+                                contentColor = ZedDarkBackground
+                            )
+                        ) {
+                            Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Optimize & Apply Changes to This Video", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
+            }
 
-                // Video Public Tags
-                if (video.tags.isNotEmpty()) {
-                    item {
-                        GlassCard {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Extracted Video Tags (${video.tags.size})",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
+            // Diagnostic Checks
+            items(audit.checks) { check ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedCardBorder)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        val iconColor = when (check.status) {
+                            "PASS" -> ZedEmeraldSuccess
+                            "WARN" -> ZedAmberWarning
+                            else -> ZedCoralError
+                        }
+                        Icon(
+                            imageVector = if (check.status == "PASS") Icons.Default.CheckCircle else Icons.Default.Warning,
+                            contentDescription = check.status,
+                            tint = iconColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = check.label,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = check.detail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ZedTextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // AI Deep Coaching Button & Result
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedPurpleAccent.copy(alpha = 0.45f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "ZD Video Repackaging Plan",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = ZedPurpleAccent
+                            )
+                            Button(
+                                onClick = { viewModel.generateAiCoachingForInspectedVideo() },
+                                enabled = !uiState.isGeneratingVideoCoaching,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ZedPurpleAccent,
+                                    contentColor = Color.White
                                 )
-                                OutlinedButton(
-                                    onClick = {
-                                        clipboard.setText(AnnotatedString(video.tags.joinToString(", ")))
-                                        viewModel.showToast("Copied all ${video.tags.size} video tags!")
-                                    }
-                                ) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Copy Tags")
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                video.tags.forEach { tag ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.surface,
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                                    ) {
-                                        Text(
-                                            text = tag,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
+                                if (uiState.isGeneratingVideoCoaching) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Analyzing...")
+                                } else {
+                                    Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Generate Fix Plan")
                                 }
                             }
+                        }
+
+                        if (!uiState.videoAiCoachingSummary.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = uiState.videoAiCoachingSummary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White
+                            )
                         }
                     }
                 }
@@ -1076,186 +1105,395 @@ fun VideoAnalyzerAndAuditScreen(
     }
 }
 
-@Composable
-private fun CompetitorStatPill(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = ZedCyan
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
+// =========================================================================
+// DETAIL SCREEN: CHANNEL HEALTH & POLICY AUDIT
+// =========================================================================
 
 @Composable
-fun ChannelHealthCheckScreen(
-    uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
+fun ChannelHealthAuditScreen(
+    uiState: ZedCraftUiState
 ) {
-    BackHandler { viewModel.closeDetail() }
-    val report = uiState.channelHealthReport
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        DetailTopBar(
-            title = "Channel Health & Policy Risk Check",
-            subtitle = "Data-backed diagnostics + YouTube Community & Monetization Policy checks",
-            onBack = { viewModel.closeDetail() }
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            if (report == null) {
-                item {
-                    EmptyStateCard(
-                        title = "No Channel Connected Yet",
-                        message = "Connect your YouTube channel from the Home or Profile tab to generate a complete Channel Health & Policy Risk Report.",
-                        actionLabel = "Go to Home",
-                        onAction = { viewModel.closeDetail() }
-                    )
-                }
-            } else {
-                item {
-                    GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.6f)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AnimatedScoreRing(
-                                score = report.overallHealthScore,
-                                label = "Channel Health",
-                                isAiEstimate = false
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = report.channel.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Uploads/mo: ${report.uploadsPerMonth} • Shorts Mix: ${report.shortsRatioPercent}% • Avg Eng: ${report.avgEngagementPercent}%",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                DataBadge(text = "Best Schedule: ${report.bestUploadSchedule}", isAi = false)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        SubScoreBar("Upload Consistency", report.uploadConsistencyScore)
-                        SubScoreBar("CTR & Packaging Momentum", report.ctrAndPackagingScore)
-                        SubScoreBar("Retention & Duration Depth", report.retentionAndDurationScore)
-                        SubScoreBar("Engagement & Audience Loyalty", report.engagementLoyaltyScore)
-                        SubScoreBar("Shorts vs Long-Form Content Mix", report.contentMixScore)
-                    }
-                }
-
-                // Data-Backed Drop Diagnosis (No "shadowban" myths)
-                item {
-                    GlassCard(accentBorderColor = ZedViolet.copy(alpha = 0.55f)) {
-                        SectionHeader(
-                            title = "Real Data View-Drop & Reach Diagnosis",
-                            subtitle = "Why reach changes based on real YouTube discovery signals",
-                            badgeText = "Honest Telemetry",
-                            isAiBadge = false
+    val health = uiState.channelHealthReport
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ZedDarkBackground),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        if (health == null) {
+            item {
+                Text(
+                    text = "Connect a YouTube channel on the Home tab first to run a full Channel Health & Policy Audit.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ZedTextSecondary
+                )
+            }
+        } else {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedEmeraldSuccess.copy(alpha = 0.45f))
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text(
+                            text = "${health.channel.title} • Overall Health: ${health.overallHealthScore}/100",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ZedEmeraldSuccess
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = report.dropDiagnosisSummary,
+                            text = health.dropDiagnosisSummary,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Best Upload Schedule: ${health.bestUploadSchedule}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = ZedCyanPrimary
                         )
                     }
                 }
+            }
 
-                // Policy & Monetization Risk Checks
-                item {
-                    SectionHeader(
-                        title = "YouTube Policy & Monetization Risk Checks",
-                        subtitle = "Proactive scan for Repetitious Content, Metadata Spam, AI Disclosure, COPPA, and Copyright."
-                    )
-                }
+            item {
+                Text(
+                    text = "YouTube Policy & Monetization Safety Checks",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
-                items(report.policyChecks, key = { it.id }) { policy ->
-                    GlassCard {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = policy.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
+            items(health.policyChecks) { p ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedCardBorder)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.VerifiedUser,
+                                contentDescription = p.status,
+                                tint = if (p.status == "SAFE") ZedEmeraldSuccess else ZedAmberWarning,
+                                modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            StatusPill(status = policy.status)
+                            Text(
+                                text = "${p.area} (${p.status})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = policy.observation,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "How to stay compliant: ${policy.howToFix}",
+                            text = p.guidance,
                             style = MaterialTheme.typography.bodySmall,
-                            color = ZedCyan
+                            color = ZedTextSecondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// DETAIL SCREEN: REVENUE & SPONSOR DEAL CALCULATOR
+// =========================================================================
+
+@Composable
+fun RevenueAndSponsorCalculatorScreen(
+    uiState: ZedCraftUiState,
+    viewModel: ZedCraftViewModel
+) {
+    val context = LocalContext.current
+    val longFormMonthlyUsd = (uiState.calcMonthlyViews / 1000.0) * uiState.calcNicheRpmUsd
+    val shortsMonthlyUsd = (uiState.calcShortsViews / 1000.0) * 0.09 // Realistic $0.09 RPM for Shorts
+    val totalAdSenseMonthly = longFormMonthlyUsd + shortsMonthlyUsd
+    val totalAdSenseYearly = totalAdSenseMonthly * 12.0
+
+    // Sponsor Integration Pricing (60s integrated shoutout: ~$22–$35 CPM)
+    val sponsorLowUsd = (uiState.calcAvgViewsPerVideo / 1000.0) * 20.0
+    val sponsorHighUsd = (uiState.calcAvgViewsPerVideo / 1000.0) * 35.0
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ZedDarkBackground),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedEmeraldSuccess.copy(alpha = 0.45f))
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text(
+                        text = "Estimated Creator Earnings",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = ZedTextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = String.format(Locale.US, "$%,.0f / month", totalAdSenseMonthly),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ZedEmeraldSuccess
+                    )
+                    Text(
+                        text = String.format(Locale.US, "Projected Annual AdSense: $%,.0f / yr", totalAdSenseYearly),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ZedCyanPrimary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = ZedDarkSurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "60-Second Brand Integration Rate Card",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = ZedAmberWarning,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = String.format(Locale.US, "$%,.0f – $%,.0f per sponsored video", sponsorLowUsd, sponsorHighUsd),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCardBorder)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Monthly Long-Form Views: ${YouTubeApiClient.formatCompact(uiState.calcMonthlyViews)}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Slider(
+                        value = uiState.calcMonthlyViews.toFloat(),
+                        onValueChange = { viewModel.updateRevenueCalculator(monthlyViews = it.toLong()) },
+                        valueRange = 5_000f..5_000_000f,
+                        colors = SliderDefaults.colors(thumbColor = ZedCyanPrimary, activeTrackColor = ZedCyanPrimary)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = String.format(Locale.US, "Niche RPM (Revenue per 1,000 views): $%.2f", uiState.calcNicheRpmUsd),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Slider(
+                        value = uiState.calcNicheRpmUsd.toFloat(),
+                        onValueChange = { viewModel.updateRevenueCalculator(nicheRpmUsd = it.toDouble()) },
+                        valueRange = 1.0f..35.0f,
+                        colors = SliderDefaults.colors(thumbColor = ZedEmeraldSuccess, activeTrackColor = ZedEmeraldSuccess)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Monthly Shorts Views: ${YouTubeApiClient.formatCompact(uiState.calcShortsViews)}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Slider(
+                        value = uiState.calcShortsViews.toFloat(),
+                        onValueChange = { viewModel.updateRevenueCalculator(shortsViews = it.toLong()) },
+                        valueRange = 0f..10_000_000f,
+                        colors = SliderDefaults.colors(thumbColor = ZedPurpleAccent, activeTrackColor = ZedPurpleAccent)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Avg Views Per Video (for Sponsor Rate): ${YouTubeApiClient.formatCompact(uiState.calcAvgViewsPerVideo)}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Slider(
+                        value = uiState.calcAvgViewsPerVideo.toFloat(),
+                        onValueChange = { viewModel.updateRevenueCalculator(avgViewsPerVideo = it.toLong()) },
+                        valueRange = 1_000f..1_000_000f,
+                        colors = SliderDefaults.colors(thumbColor = ZedAmberWarning, activeTrackColor = ZedAmberWarning)
+                    )
+                }
+            }
+        }
+
+        item {
+            val pitchTemplate = """
+                Subject: Partnership Idea: ${uiState.activeChannel?.title ?: "Our YouTube Channel"} x [Brand Name]
+                
+                Hi [Name],
+                
+                I run ${uiState.activeChannel?.title ?: "a YouTube channel"} (${uiState.activeChannel?.handle ?: "@creator"}), where our videos average ${YouTubeApiClient.formatCompact(uiState.calcAvgViewsPerVideo)} views per upload from viewers passionate about ${uiState.optimizeNicheInput}.
+                
+                We're planning an upcoming deep-dive video where [Brand Name] would be a natural fit for a 60-second hands-on integration. Our standard integration rate is ${String.format(Locale.US, "$%,.0f", (sponsorLowUsd + sponsorHighUsd) / 2)} including a pinned comment and top-of-description tracking link.
+                
+                Would you be open to a quick brief this week?
+            """.trimIndent()
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCardBorder)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Sponsor Cold-Pitch Template",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        IconButton(
+                            onClick = {
+                                val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                cb?.setPrimaryClip(ClipData.newPlainText("Sponsor Pitch", pitchTemplate))
+                                Toast.makeText(context, "Sponsor pitch copied!", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Copy Pitch", tint = ZedCyanPrimary)
+                        }
+                    }
+                    Text(
+                        text = pitchTemplate,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ZedTextSecondary
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// DETAIL SCREEN: PRE-PUBLISH & YPP LAUNCH CHECKLIST
+// =========================================================================
+
+@Composable
+fun LaunchChecklistScreen(
+    items: List<ChecklistItemEntity>,
+    viewModel: ZedCraftViewModel
+) {
+    val completed = items.count { it.isCompleted }
+    val total = items.size.coerceAtLeast(1)
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ZedDarkBackground),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Checklist Progress: $completed / ${items.size}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        OutlinedButton(
+                            onClick = { viewModel.resetChecklistProgress() },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, ZedCardBorder)
+                        ) {
+                            Text("Reset All", style = MaterialTheme.typography.labelSmall, color = ZedTextSecondary)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { completed.toFloat() / total.toFloat() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = ZedEmeraldSuccess,
+                        trackColor = ZedDarkBackground
+                    )
+                }
+            }
+        }
+
+        items(items, key = { it.itemKey }) { item ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.toggleChecklistItem(item) },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(
+                    1.dp,
+                    if (item.isCompleted) ZedEmeraldSuccess.copy(alpha = 0.45f) else ZedCardBorder
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Checkbox(
+                        checked = item.isCompleted,
+                        onCheckedChange = { viewModel.toggleChecklistItem(item) },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = ZedEmeraldSuccess,
+                            checkmarkColor = ZedDarkBackground
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = item.phase.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ZedCyanPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = item.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Reference: ${policy.policyReference}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = item.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ZedTextSecondary
                         )
-                    }
-                }
-
-                // Underperforming Videos & Fix Suggestions
-                if (report.underperformingVideos.isNotEmpty()) {
-                    item {
-                        SectionHeader(
-                            title = "Underperforming Uploads & Recovery Fixes",
-                            subtitle = "Tap any video to open a 1-Tap SEO Audit or rewrite its packaging."
-                        )
-                    }
-                    items(report.underperformingVideos, key = { it.first.videoId }) { (video, fixNote) ->
-                        GlassCard(
-                            onClick = {
-                                viewModel.openDetail(DetailDestination.VideoAnalyzerAndAudit(video.videoId))
-                            }
-                        ) {
-                            Text(
-                                text = video.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "${YouTubeApiClient.formatCompact(video.viewCount)} views • Published ${video.publishedAt.take(10)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Recovery Action: $fixNote",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = ZedWarning
-                            )
-                        }
                     }
                 }
             }
@@ -1263,462 +1501,103 @@ fun ChannelHealthCheckScreen(
     }
 }
 
+// =========================================================================
+// DETAIL SCREEN: SAVED IDEAS VAULT
+// =========================================================================
+
 @Composable
-fun SetupGuideScreen(
-    uiState: ZedCraftUiState,
+fun SavedVaultScreen(
+    savedIdeas: List<SavedIdeaEntity>,
     viewModel: ZedCraftViewModel
 ) {
-    BackHandler { viewModel.closeDetail() }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        DetailTopBar(
-            title = "ZEDCraft Setup & API Configuration",
-            subtitle = "Configure YouTube Data API v3, Analytics API, OAuth 2.0 & Gemini AI",
-            onBack = { viewModel.closeDetail() }
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
+    val context = LocalContext.current
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ZedDarkBackground),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (savedIdeas.isEmpty()) {
             item {
-                GlassCard(accentBorderColor = ZedCyan) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedCardBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Live Environment Status",
+                            text = "Your Vault is Empty",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        StatusPill(status = if (uiState.isYouTubeApiKeyConfigured) "PASSED" else "REVIEW")
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    SetupCheckRow(
-                        label = "YouTube Data API v3 Key (YOUTUBE_API_KEY)",
-                        isReady = uiState.isYouTubeApiKeyConfigured,
-                        detail = if (uiState.isYouTubeApiKeyConfigured) {
-                            "Injected via BuildConfig from AI Studio Secrets"
-                        } else {
-                            "Add YOUTUBE_API_KEY in the AI Studio Secrets panel to unlock live YouTube Data API v3 requests"
-                        }
-                    )
-                    SetupCheckRow(
-                        label = "ZD Main AI Model (${ZedCraftAiConfig.ZD_MAIN_MODEL})",
-                        isReady = true,
-                        detail = "Provisioned via Firebase AI Logic with automatic fallback to ${ZedCraftAiConfig.FAST_MODEL}"
-                    )
-                    SetupCheckRow(
-                        label = "ZEDCraft Fast Tool Model (${ZedCraftAiConfig.FAST_MODEL})",
-                        isReady = true,
-                        detail = "Active for Multimodal Thumbnail Vision, Title Optimizer, Description & Tag tools"
-                    )
-                    SetupCheckRow(
-                        label = "Google OAuth 2.0 Read-Only Scopes",
-                        isReady = uiState.oauthAccessToken != null,
-                        detail = "Scopes: youtube.readonly & yt-analytics.readonly (Never requests write access)"
-                    )
-                }
-            }
-
-            item {
-                GlassCard {
-                    Text(
-                        text = "Step 1: Add YOUTUBE_API_KEY in AI Studio Secrets",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "1. Open Google Cloud Console -> APIs & Services -> Library.\n" +
-                            "2. Enable 'YouTube Data API v3' and 'YouTube Analytics API'.\n" +
-                            "3. Go to Credentials -> Create Credentials -> API Key.\n" +
-                            "4. In AI Studio, open the Secrets panel and set YOUTUBE_API_KEY to your key.\n" +
-                            "5. All responses are automatically cached in Room SQLite to protect your daily 10,000-unit quota.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-
-            item {
-                GlassCard {
-                    Text(
-                        text = "Step 2: Connect Your Channel via Google OAuth 2.0",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "1. In Google Cloud Console -> OAuth consent screen, add the read-only scopes:\n" +
-                            "   • https://www.googleapis.com/auth/youtube.readonly\n" +
-                            "   • https://www.googleapis.com/auth/yt-analytics.readonly\n" +
-                            "2. Tap 'Connect YouTube Channel' in ZEDCraft to sign in with Google and grant read-only access to your channel's own YouTube Analytics reports.\n" +
-                            "3. You can also use every public tool (Thumbnail Scorer, Title Optimizer, Description & Chapters, Tags, Keyword Research, and ZD AI) immediately without connecting a channel.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SetupCheckRow(
-    label: String,
-    isReady: Boolean,
-    detail: String
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = null,
-            tint = if (isReady) ZedSuccess else ZedWarning,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Column {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-fun PrivacyAndTermsScreen(
-    viewModel: ZedCraftViewModel
-) {
-    BackHandler { viewModel.closeDetail() }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        DetailTopBar(
-            title = "Privacy Policy & YouTube API Terms",
-            subtitle = "Google User Data Policy, Read-Only Scopes & AI Transparency",
-            onBack = { viewModel.closeDetail() }
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                GlassCard {
-                    Text(
-                        text = "1. YouTube API Services Terms of Service",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = ZedCyan
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "By using ZEDCraft to connect or analyze YouTube channels and videos, you agree to be bound by the YouTube Terms of Service (https://www.youtube.com/t/terms) and the Google Privacy Policy (https://policies.google.com/privacy).",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            item {
-                GlassCard {
-                    Text(
-                        text = "2. Strict Read-Only OAuth Scope Guarantee",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = ZedCyan
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "ZEDCraft requests ONLY read-only scopes (youtube.readonly and yt-analytics.readonly) when you choose to connect your channel. ZEDCraft never modifies, uploads, or deletes videos on your YouTube channel, and never sells or shares your channel data with third parties.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            item {
-                GlassCard {
-                    Text(
-                        text = "3. Honest Telemetry vs. AI Estimate Labeling",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = ZedCyan
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "• Real YouTube Data & Analytics Metrics (views, subscribers, likes, comments, watch time, average view duration, traffic sources) are labeled with 'YouTube Data API v3' or 'YouTube Analytics API'.\n" +
-                            "• ZEDCraft Opportunity & Audit scores are labeled 'ZEDCraft Computed Score' with their formula explained.\n" +
-                            "• Gemini Vision and language model evaluations are clearly labeled 'AI Estimate' and are never presented as official YouTube metrics.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            item {
-                GlassCard {
-                    Text(
-                        text = "4. Revoking Access & Deleting Stored Data",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = ZedCyan
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "You can disconnect your YouTube channel and permanently delete all cloud and local data at any time from Profile -> 'Delete All Stored Data (Cloud + Local)', or revoke access via Google Account Security settings (https://security.google.com/settings/security/permissions).",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun SavedWorkDetailScreen(
-    item: SavedWorkItem,
-    viewModel: ZedCraftViewModel
-) {
-    BackHandler { viewModel.closeDetail() }
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        DetailTopBar(
-            title = item.title,
-            subtitle = "${item.workType} • Score: ${item.score}/100",
-            onBack = { viewModel.closeDetail() }
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                GlassCard(accentBorderColor = ZedCyan) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DataBadge(text = item.workType, isAi = true)
-                        DataBadge(
-                            text = "Score: ${item.score}/100",
-                            isAi = true,
-                            colorOverride = scoreColor(item.score)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Bookmark optimized titles, descriptions, scripts, keywords, or ZD coaching notes to access them offline anytime.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ZedTextSecondary,
+                            textAlign = TextAlign.Center
                         )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = item.subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Saved Details:",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = item.payloadJson,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val full = "${item.title}\n${item.subtitle}\n\n${item.payloadJson}"
-                                clipboard.setText(AnnotatedString(full))
-                                viewModel.showToast("Copied to clipboard!")
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy All")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_SUBJECT, "ZEDCraft: ${item.title}")
-                                    putExtra(Intent.EXTRA_TEXT, "${item.title}\n${item.subtitle}\n\n${item.payloadJson}")
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share ZEDCraft Item"))
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Share")
-                        }
-                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun GitHubUpdaterScreen(
-    uiState: ZedCraftUiState,
-    viewModel: ZedCraftViewModel
-) {
-    BackHandler { viewModel.closeDetail() }
-    val context = LocalContext.current
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        DetailTopBar(
-            title = "Software Update",
-            subtitle = "Official ZEDCraft Release Channel",
-            onBack = { viewModel.closeDetail() }
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                GlassCard(accentBorderColor = ZedCyan.copy(alpha = 0.6f)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "ZEDCraft v${BuildConfig.VERSION_NAME}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Official Update Channel",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = ZedCyan
-                            )
-                        }
-                        DataBadge(text = "Verified Build", isAi = false)
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Button(
-                        onClick = { viewModel.checkForGitHubUpdates() },
-                        enabled = !uiState.isCheckingGitHubUpdate,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("check_github_updates_btn"),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.SystemUpdateAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Check for Updates", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            if (uiState.isCheckingGitHubUpdate) {
-                item {
-                    LoadingBanner(message = "Checking for the latest ZEDCraft update...")
-                }
-            }
-
-            uiState.githubUpdateError?.let { err ->
-                item { ErrorBanner(message = err) }
-            }
-
-            val info = uiState.githubUpdateInfo
-            if (info != null) {
-                item {
-                    GlassCard(
-                        accentBorderColor = if (info.isUpdateAvailable) ZedSuccess else ZedViolet.copy(alpha = 0.6f)
-                    ) {
+        } else {
+            items(savedIdeas, key = { it.id }) { idea ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                    border = BorderStroke(1.dp, ZedCardBorder)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = info.releaseTitle,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
+                                text = idea.category.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ZedCyanPrimary,
+                                fontWeight = FontWeight.Bold
                             )
-                            StatusPill(status = if (info.isUpdateAvailable) "UPDATE" else "PASSED")
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = info.statusSummary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (info.isUpdateAvailable) ZedSuccess else MaterialTheme.colorScheme.onSurface
-                        )
-                        if (info.publishedAt.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Release Date: ${info.publishedAt} • Version: ${info.latestVersionTag}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = info.releaseNotes,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (!info.apkDownloadUrl.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Button(
-                                onClick = {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.apkDownloadUrl))
-                                    context.startActivity(intent)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Download & Install Update")
+                            Row {
+                                IconButton(
+                                    onClick = {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_SUBJECT, idea.title)
+                                            putExtra(Intent.EXTRA_TEXT, "${idea.title}\n\n${idea.content}")
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Export Idea"))
+                                    },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Share, contentDescription = "Share", tint = ZedTextSecondary, modifier = Modifier.size(16.dp))
+                                }
+                                IconButton(
+                                    onClick = { viewModel.deleteSavedIdea(idea.id) },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = ZedCoralError, modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
+                        Text(
+                            text = idea.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = idea.content,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ZedTextSecondary
+                        )
                     }
                 }
             }
@@ -1726,3 +1605,81 @@ fun GitHubUpdaterScreen(
     }
 }
 
+// =========================================================================
+// DETAIL SCREEN: PRIVACY POLICY & YOUTUBE TERMS
+// =========================================================================
+
+@Composable
+fun PrivacyAndTermsScreen() {
+    val context = LocalContext.current
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ZedDarkBackground),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                border = BorderStroke(1.dp, ZedEmeraldSuccess.copy(alpha = 0.45f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "YouTube Terms & Data Protection",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = ZedEmeraldSuccess
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = """
+                            1. By using ZEDCraft, you agree to be bound by the YouTube Terms of Service (https://www.youtube.com/t/terms) and Google Privacy Policy (https://policies.google.com/privacy).
+                            
+                            2. User-Confirmed Changes Only: ZEDCraft never modifies your videos automatically. Live updates to your YouTube video title, description, tags, or thumbnail happen strictly when you tap "Apply to YouTube" and confirm the update dialog.
+                            
+                            3. Automatic Local Undo Backup: Before applying any title, description, or tag update, ZEDCraft saves your previous video snippet locally on your device so you can restore the previous version with a single tap.
+                            
+                            4. Account Revocation: You can disconnect your channel inside Profile at any time, or revoke ZEDCraft's access via Google Security Settings (https://security.google.com/settings/security/permissions).
+                        """.trimIndent(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/t/terms"))
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.5f))
+                        ) {
+                            Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = ZedCyanPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("YouTube ToS", color = ZedCyanPrimary)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://policies.google.com/privacy"))
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.5f))
+                        ) {
+                            Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = ZedCyanPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Google Privacy", color = ZedCyanPrimary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

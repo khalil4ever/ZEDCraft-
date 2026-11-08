@@ -1,8 +1,11 @@
 package com.example.data.remote
 
+import android.graphics.Bitmap
 import com.example.BuildConfig
+import com.example.data.local.VideoRevisionBackupEntity
 import com.example.data.local.YouTubeCacheDao
 import com.example.data.local.YouTubeCacheEntity
+import java.io.ByteArrayOutputStream
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -13,19 +16,25 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
 sealed class YouTubeApiException(message: String) : Exception(message) {
     class MissingApiKeyException : YouTubeApiException(
-        "YouTube Data API v3 key is not configured yet. Open the Setup screen or AI Studio Secrets panel to add YOUTUBE_API_KEY."
+        "Please connect your YouTube channel to load your videos and analytics."
     )
     class QuotaExceededException : YouTubeApiException(
-        "YouTube API daily quota limit reached. ZEDCraft is serving cached data where available. Quota resets at midnight Pacific Time."
+        "YouTube daily quota limit reached (10,000 units/day). ZEDCraft is serving cached data where available. Quota resets at midnight Pacific Time."
     )
     class UnauthorizedException(msg: String) : YouTubeApiException(msg)
+    class PermissionDeniedException(msg: String) : YouTubeApiException(msg)
+    class UnverifiedChannelThumbnailException(
+        msg: String = "Your YouTube channel needs phone verification before uploading custom thumbnails. Please verify your channel at youtube.com/verify and try again."
+    ) : YouTubeApiException(msg)
     class NotFoundException(msg: String) : YouTubeApiException(msg)
     class NetworkErrorException(msg: String) : YouTubeApiException(msg)
 }
@@ -169,7 +178,7 @@ class YouTubeApiClient(
 
                 if (response.code == 401 || response.code == 403) {
                     throw YouTubeApiException.UnauthorizedException(
-                        errMsg.ifBlank { "Authorization failed (${response.code}). Check your API key or re-authorize your YouTube channel." }
+                        errMsg.ifBlank { "Your YouTube login session expired or lacked permission. Please reconnect your YouTube channel." }
                     )
                 }
 
@@ -358,6 +367,41 @@ class YouTubeApiClient(
         if (videoIds.isEmpty()) return@runCatching emptyList()
         val videos = fetchVideosBatch(videoIds, oauthAccessToken, forceRefresh).getOrThrow()
         videos.map { it.copy(channelSubscribers = channel.subscriberCount) }
+    }
+
+    /**
+     * Overload that fetches recent uploaded videos directly by `uploadsPlaylistId` (used by ZedCraftViewModel).
+     */
+    suspend fun fetchChannelRecentVideos(
+        uploadsPlaylistId: String,
+        maxResults: Int = 30,
+        oauthAccessToken: String? = null,
+        forceRefresh: Boolean = false
+    ): Result<List<YtVideoDetail>> = runCatching {
+        val playlistId = uploadsPlaylistId.trim()
+        if (playlistId.isBlank()) return@runCatching emptyList()
+        val encodedPlaylist = URLEncoder.encode(playlistId, "UTF-8")
+        val playlistUrl = "https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=$encodedPlaylist&maxResults=${maxResults.coerceIn(1, 50)}"
+        val playlistJson = executeCachedGet(
+            cacheKey = "playlist_items_${playlistId}_$maxResults",
+            endpoint = "playlistItems.list",
+            url = playlistUrl,
+            oauthAccessToken = oauthAccessToken,
+            ttlMs = 30 * 60 * 1000L,
+            forceRefresh = forceRefresh
+        )
+        val items = playlistJson.optJSONArray("items") ?: JSONArray()
+        val videoIds = mutableListOf<String>()
+        for (i in 0 until items.length()) {
+            val vid = items.getJSONObject(i).optJSONObject("contentDetails")?.optString("videoId").orEmpty()
+            if (vid.isNotBlank()) videoIds.add(vid)
+        }
+        if (videoIds.isEmpty()) return@runCatching emptyList()
+        val videos = fetchVideosBatch(videoIds, oauthAccessToken, forceRefresh).getOrThrow()
+        val channelMap = fetchChannelsBatch(videos.map { it.channelId }, oauthAccessToken)
+        videos.map { v ->
+            v.copy(channelSubscribers = channelMap[v.channelId]?.subscriberCount ?: 0L)
+        }
     }
 
     suspend fun fetchVideoById(
@@ -1328,7 +1372,9 @@ class YouTubeApiClient(
                     commentCount = stats.optString("commentCount", "0").toLongOrNull() ?: 0L,
                     tags = tags,
                     hashtags = hashtags,
-                    categoryId = snippet.optString("categoryId", ""),
+                    categoryId = snippet.optString("categoryId", "22").ifBlank { "22" },
+                    defaultLanguage = snippet.optString("defaultLanguage", ""),
+                    defaultAudioLanguage = snippet.optString("defaultAudioLanguage", ""),
                     madeForKids = status.optBoolean("madeForKids", false),
                     hasChapters = hasZeroZero && chapterMatches >= 3,
                     chapterCount = chapterMatches
@@ -1336,6 +1382,485 @@ class YouTubeApiClient(
             )
         }
         return list
+    }
+
+    /**
+     * Safely updates a live YouTube video's snippet (`videos.update` costs ~50 quota units).
+     * Always fetches the current live snippet first, backs up the previous title, description, and tags
+     * into Room (`video_revision_backups`), modifies ONLY the requested field(s), and sends back the full snippet
+     * (`title`, `description`, `tags`, `categoryId`, `defaultLanguage`, `defaultAudioLanguage`) so nothing is erased.
+     */
+    suspend fun updateVideoSnippetSafely(
+        videoId: String,
+        oauthAccessToken: String,
+        newTitle: String? = null,
+        newDescription: String? = null,
+        newTags: List<String>? = null
+    ): Result<YouTubeWriteOutcome> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (oauthAccessToken.isBlank()) {
+                throw YouTubeApiException.UnauthorizedException("Please connect your YouTube channel first to apply changes.")
+            }
+
+            // Step 1: Always fetch the live snippet directly from YouTube Data API v3
+            val getUrl = "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${URLEncoder.encode(videoId, "UTF-8")}"
+            val getReq = Request.Builder()
+                .url(getUrl)
+                .header("Authorization", "Bearer $oauthAccessToken")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            val currentSnippet: JSONObject = httpClient.newCall(getReq).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    throw mapWriteError(resp.code, body)
+                }
+                val root = JSONObject(body)
+                val items = root.optJSONArray("items")
+                if (items == null || items.length() == 0) {
+                    throw YouTubeApiException.NotFoundException("Video ($videoId) was not found on your YouTube channel.")
+                }
+                items.getJSONObject(0).optJSONObject("snippet")
+                    ?: throw YouTubeApiException.NotFoundException("Video snippet missing for $videoId.")
+            }
+
+            val currentTitle = currentSnippet.optString("title", "")
+            val currentDescription = currentSnippet.optString("description", "")
+            val currentCategoryId = currentSnippet.optString("categoryId", "22").ifBlank { "22" }
+            val currentDefaultLanguage = currentSnippet.optString("defaultLanguage", "")
+            val currentDefaultAudioLanguage = currentSnippet.optString("defaultAudioLanguage", "")
+            val currentTagsJson = currentSnippet.optJSONArray("tags")
+            val currentTags = if (currentTagsJson != null) {
+                (0 until currentTagsJson.length()).mapNotNull { idx ->
+                    currentTagsJson.optString(idx).takeIf { it.isNotBlank() }
+                }
+            } else {
+                emptyList()
+            }
+
+            // Step 2: Save previous state in local Room backup before modifying anything
+            cacheDao.upsertVideoRevisionBackup(
+                VideoRevisionBackupEntity(
+                    videoId = videoId,
+                    previousTitle = currentTitle,
+                    previousDescription = currentDescription,
+                    previousTagsJson = JSONArray(currentTags).toString(),
+                    categoryId = currentCategoryId,
+                    defaultLanguage = currentDefaultLanguage,
+                    defaultAudioLanguage = currentDefaultAudioLanguage,
+                    backedUpAtMs = System.currentTimeMillis()
+                )
+            )
+
+            // Step 3: Build updated snippet keeping every existing field intact except the selected change
+            val finalTitle = (newTitle ?: currentTitle).trim().take(100)
+            val finalDescription = newDescription ?: currentDescription
+            val finalTags = newTags ?: currentTags
+
+            val updatedSnippet = JSONObject().apply {
+                put("title", finalTitle)
+                put("description", finalDescription)
+                put("categoryId", currentCategoryId)
+                if (finalTags.isNotEmpty()) {
+                    put("tags", JSONArray(finalTags))
+                }
+                if (currentDefaultLanguage.isNotBlank()) {
+                    put("defaultLanguage", currentDefaultLanguage)
+                }
+                if (currentDefaultAudioLanguage.isNotBlank()) {
+                    put("defaultAudioLanguage", currentDefaultAudioLanguage)
+                }
+            }
+
+            val putPayload = JSONObject().apply {
+                put("id", videoId)
+                put("snippet", updatedSnippet)
+            }
+
+            val putUrl = "https://www.googleapis.com/youtube/v3/videos?part=snippet"
+            val putReq = Request.Builder()
+                .url(putUrl)
+                .header("Authorization", "Bearer $oauthAccessToken")
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json; charset=utf-8")
+                .put(putPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(putReq).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    throw mapWriteError(resp.code, body)
+                }
+            }
+
+            // Invalidate cached video lookups so UI shows the updated live data
+            cacheDao.invalidateCacheKey("video_detail_$videoId")
+            cacheDao.invalidateCacheByPrefix("videos_batch_")
+
+            val updatedFieldLabel = when {
+                newTitle != null && newDescription != null && newTags != null -> "Title, Description & Tags"
+                newTitle != null -> "Title"
+                newDescription != null && newTags != null -> "Description & Tags"
+                newDescription != null -> "Description"
+                newTags != null -> "Tags"
+                else -> "Metadata"
+            }
+
+            YouTubeWriteOutcome(
+                videoId = videoId,
+                updatedField = updatedFieldLabel,
+                updatedTitle = finalTitle,
+                updatedDescription = finalDescription,
+                updatedTags = finalTags,
+                youtubeWatchUrl = "https://www.youtube.com/watch?v=$videoId"
+            )
+        }
+    }
+
+    /**
+     * Restores the previous title, description, and tags saved before the last ZEDCraft update.
+     */
+    suspend fun restoreVideoSnippetFromBackup(
+        videoId: String,
+        oauthAccessToken: String
+    ): Result<YouTubeWriteOutcome> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (oauthAccessToken.isBlank()) {
+                throw YouTubeApiException.UnauthorizedException("Please connect your YouTube channel first to restore changes.")
+            }
+
+            val backup = cacheDao.getVideoRevisionBackup(videoId)
+                ?: throw YouTubeApiException.NotFoundException("No previous revision backup found for this video.")
+
+            val restoredTags = runCatching {
+                val arr = JSONArray(backup.previousTagsJson)
+                (0 until arr.length()).mapNotNull { i -> arr.optString(i).takeIf { it.isNotBlank() } }
+            }.getOrDefault(emptyList())
+
+            // Fetch current snippet first so we preserve the latest categoryId/language if needed
+            val getUrl = "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${URLEncoder.encode(videoId, "UTF-8")}"
+            val getReq = Request.Builder()
+                .url(getUrl)
+                .header("Authorization", "Bearer $oauthAccessToken")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            val liveSnippet = httpClient.newCall(getReq).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) throw mapWriteError(resp.code, body)
+                JSONObject(body).optJSONArray("items")?.optJSONObject(0)?.optJSONObject("snippet")
+            }
+
+            val categoryId = liveSnippet?.optString("categoryId")?.ifBlank { null }
+                ?: backup.categoryId.ifBlank { "22" }
+            val defaultLang = liveSnippet?.optString("defaultLanguage")?.ifBlank { null }
+                ?: backup.defaultLanguage
+            val defaultAudioLang = liveSnippet?.optString("defaultAudioLanguage")?.ifBlank { null }
+                ?: backup.defaultAudioLanguage
+
+            val restoredSnippet = JSONObject().apply {
+                put("title", backup.previousTitle)
+                put("description", backup.previousDescription)
+                put("categoryId", categoryId)
+                if (restoredTags.isNotEmpty()) {
+                    put("tags", JSONArray(restoredTags))
+                }
+                if (defaultLang.isNotBlank()) {
+                    put("defaultLanguage", defaultLang)
+                }
+                if (defaultAudioLang.isNotBlank()) {
+                    put("defaultAudioLanguage", defaultAudioLang)
+                }
+            }
+
+            val putPayload = JSONObject().apply {
+                put("id", videoId)
+                put("snippet", restoredSnippet)
+            }
+
+            val putUrl = "https://www.googleapis.com/youtube/v3/videos?part=snippet"
+            val putReq = Request.Builder()
+                .url(putUrl)
+                .header("Authorization", "Bearer $oauthAccessToken")
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json; charset=utf-8")
+                .put(putPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(putReq).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    throw mapWriteError(resp.code, body)
+                }
+            }
+
+            cacheDao.invalidateCacheKey("video_detail_$videoId")
+            cacheDao.invalidateCacheByPrefix("videos_batch_")
+
+            YouTubeWriteOutcome(
+                videoId = videoId,
+                updatedField = "Restored Previous Version",
+                updatedTitle = backup.previousTitle,
+                updatedDescription = backup.previousDescription,
+                updatedTags = restoredTags,
+                youtubeWatchUrl = "https://www.youtube.com/watch?v=$videoId"
+            )
+        }
+    }
+
+    /**
+     * Uploads a custom 16:9 thumbnail (<2MB JPEG) to a live YouTube video using `thumbnails.set`.
+     * Detects unverified channel errors and returns a friendly message explaining phone verification at youtube.com/verify.
+     */
+    suspend fun uploadCustomThumbnail(
+        videoId: String,
+        bitmap: Bitmap,
+        oauthAccessToken: String
+    ): Result<YouTubeWriteOutcome> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (oauthAccessToken.isBlank()) {
+                throw YouTubeApiException.UnauthorizedException("Please connect your YouTube channel first to upload thumbnails.")
+            }
+
+            // Ensure 16:9 aspect ratio (1280x720 standard HD) and < 2MB size
+            val targetWidth = 1280
+            val targetHeight = 720
+            val scaledBitmap = if (bitmap.width != targetWidth || bitmap.height != targetHeight) {
+                Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+            } else {
+                bitmap
+            }
+
+            var quality = 92
+            var jpegBytes: ByteArray
+            do {
+                val out = ByteArrayOutputStream()
+                scaledBitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+                jpegBytes = out.toByteArray()
+                quality -= 8
+            } while (jpegBytes.size > 1_950_000 && quality >= 50)
+
+            if (jpegBytes.size > 2_000_000) {
+                throw YouTubeApiException.NetworkErrorException("Thumbnail image exceeds YouTube's 2MB limit. Please choose a smaller 16:9 JPG or PNG.")
+            }
+
+            val uploadUrl = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${URLEncoder.encode(videoId, "UTF-8")}&uploadType=media"
+            val req = Request.Builder()
+                .url(uploadUrl)
+                .header("Authorization", "Bearer $oauthAccessToken")
+                .header("Accept", "application/json")
+                .header("Content-Type", "image/jpeg")
+                .post(jpegBytes.toRequestBody("image/jpeg".toMediaType()))
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    val lower = body.lowercase()
+                    if (resp.code == 403 && (
+                            lower.contains("forbidden") ||
+                                lower.contains("customthumbnail") ||
+                                lower.contains("verify") ||
+                                lower.contains("unverified") ||
+                                lower.contains("insufficientpermissions")
+                            )
+                    ) {
+                        throw YouTubeApiException.UnverifiedChannelThumbnailException()
+                    }
+                    throw mapWriteError(resp.code, body)
+                }
+            }
+
+            cacheDao.invalidateCacheKey("video_detail_$videoId")
+            cacheDao.invalidateCacheByPrefix("videos_batch_")
+
+            YouTubeWriteOutcome(
+                videoId = videoId,
+                updatedField = "Custom Thumbnail",
+                updatedTitle = "",
+                updatedDescription = "",
+                updatedTags = emptyList(),
+                youtubeWatchUrl = "https://www.youtube.com/watch?v=$videoId"
+            )
+        }
+    }
+
+    private fun mapWriteError(code: Int, bodyStr: String): YouTubeApiException {
+        val errJson = runCatching { JSONObject(bodyStr).optJSONObject("error") }.getOrNull()
+        val errReason = errJson?.optJSONArray("errors")?.optJSONObject(0)?.optString("reason").orEmpty()
+        val errMsg = errJson?.optString("message").orEmpty()
+
+        if (errReason.contains("quotaExceeded", ignoreCase = true) ||
+            errReason.contains("dailyLimitExceeded", ignoreCase = true) ||
+            errMsg.contains("quota", ignoreCase = true)
+        ) {
+            return YouTubeApiException.QuotaExceededException()
+        }
+        if (code == 401) {
+            return YouTubeApiException.UnauthorizedException(
+                "Your YouTube sign-in session expired. Please tap 'Reconnect Channel' in Profile and try again."
+            )
+        }
+        if (code == 403) {
+            if (errReason.contains("insufficientPermissions", ignoreCase = true) ||
+                errMsg.contains("insufficient authentication scopes", ignoreCase = true)
+            ) {
+                return YouTubeApiException.PermissionDeniedException(
+                    "Write permission is required to update your videos. Please reconnect your YouTube channel to grant video management access."
+                )
+            }
+            return YouTubeApiException.PermissionDeniedException(
+                errMsg.ifBlank { "YouTube rejected this update (Permission denied). Make sure you own this video." }
+            )
+        }
+        if (code == 404) {
+            return YouTubeApiException.NotFoundException("Video not found on YouTube.")
+        }
+        return YouTubeApiException.NetworkErrorException(
+            errMsg.ifBlank { "YouTube update failed (HTTP $code). Please check your connection and try again." }
+        )
+    }
+
+    /**
+     * Fetches the authenticated owner's YouTube Analytics summary (`fetchOwnerAnalyticsReport`).
+     */
+    suspend fun fetchOwnerAnalyticsReport(oauthAccessToken: String): Result<YtAnalyticsSummary> = runCatching {
+        val channels = fetchMyAuthorizedChannels(oauthAccessToken).getOrThrow()
+        val myChannel = channels.firstOrNull()
+            ?: throw YouTubeApiException.NotFoundException("No YouTube channel found on this Google account.")
+        val recentVideos = fetchChannelRecentVideos(
+            uploadsPlaylistId = myChannel.uploadsPlaylistId,
+            maxResults = 25,
+            oauthAccessToken = oauthAccessToken
+        ).getOrDefault(emptyList())
+        val overview = fetchChannelAnalytics(
+            channel = myChannel,
+            recentVideos = recentVideos,
+            oauthAccessToken = oauthAccessToken,
+            daysRange = 28
+        )
+        YtAnalyticsSummary(
+            last28DaysViews = overview.totalViews,
+            last28DaysWatchTimeMinutes = overview.watchTimeMinutes,
+            avgViewDurationSeconds = overview.averageViewDurationSeconds,
+            avgViewPercentage = overview.averageViewPercentage,
+            subscribersGained = overview.subscribersGained,
+            subscribersLost = overview.subscribersLost,
+            topTrafficSources = overview.topTrafficSources.map { it.sourceName to it.views }
+        )
+    }
+
+    /**
+     * Audits a video's metadata (`auditVideoMetadata`), delegating to `runVideoSeoAudit`.
+     */
+    fun auditVideoMetadata(video: YtVideoDetail, channelMedianViews: Long = 0L): VideoDeepAudit {
+        return runVideoSeoAudit(video)
+    }
+
+    /**
+     * Researches a keyword (`researchKeyword`), delegating to `performKeywordResearch`.
+     */
+    suspend fun researchKeyword(
+        seed: String,
+        oauthAccessToken: String? = null,
+        forceRefresh: Boolean = false
+    ): Result<KeywordResearchResult> {
+        return performKeywordResearch(seed, oauthAccessToken, forceRefresh)
+    }
+
+    /**
+     * Fetches top-level comments on a YouTube video using `commentThreads.list` (1 quota unit).
+     */
+    suspend fun fetchVideoComments(
+        videoId: String,
+        maxResults: Int = 35,
+        oauthAccessToken: String? = null
+    ): Result<List<YtCommentItem>> = runCatching {
+        val cleanId = extractVideoId(videoId) ?: videoId.trim()
+        val encoded = URLEncoder.encode(cleanId, "UTF-8")
+        val url = "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=$encoded&maxResults=${maxResults.coerceIn(1, 50)}&order=relevance&textFormat=plainText"
+        val json = executeCachedGet(
+            cacheKey = "video_comments_${cleanId}_$maxResults",
+            endpoint = "commentThreads.list",
+            url = url,
+            oauthAccessToken = oauthAccessToken,
+            ttlMs = 30 * 60 * 1000L
+        )
+        val items = json.optJSONArray("items") ?: return@runCatching emptyList()
+        val comments = mutableListOf<YtCommentItem>()
+        for (i in 0 until items.length()) {
+            val topComment = items.getJSONObject(i)
+                .optJSONObject("snippet")
+                ?.optJSONObject("topLevelComment")
+            val cId = topComment?.optString("id").orEmpty()
+            val cSnippet = topComment?.optJSONObject("snippet") ?: continue
+            val text = cSnippet.optString("textDisplay", cSnippet.optString("textOriginal", "")).trim()
+            if (text.isNotBlank()) {
+                comments.add(
+                    YtCommentItem(
+                        commentId = cId,
+                        authorName = cSnippet.optString("authorDisplayName", "Viewer"),
+                        authorAvatarUrl = cSnippet.optString("authorProfileImageUrl", ""),
+                        textDisplay = text,
+                        likeCount = cSnippet.optLong("likeCount", 0L),
+                        publishedAt = cSnippet.optString("publishedAt", "")
+                    )
+                )
+            }
+        }
+        comments
+    }
+
+    /**
+     * Compares two YouTube channels head-to-head using their live channel stats and recent uploads.
+     */
+    suspend fun compareChannels(
+        inputA: String,
+        inputB: String,
+        oauthAccessToken: String? = null
+    ): Result<CompetitorComparison> = runCatching {
+        val chA = lookupChannel(inputA, oauthAccessToken).getOrThrow()
+        val chB = lookupChannel(inputB, oauthAccessToken).getOrThrow()
+
+        val vidsA = fetchChannelRecentVideos(chA, maxResults = 20, oauthAccessToken = oauthAccessToken)
+            .getOrDefault(emptyList())
+        val vidsB = fetchChannelRecentVideos(chB, maxResults = 20, oauthAccessToken = oauthAccessToken)
+            .getOrDefault(emptyList())
+
+        val avgViewsA = if (vidsA.isNotEmpty()) vidsA.sumOf { it.viewCount } / vidsA.size else 0L
+        val avgViewsB = if (vidsB.isNotEmpty()) vidsB.sumOf { it.viewCount } / vidsB.size else 0L
+
+        val engA = if (vidsA.isNotEmpty()) vidsA.map { it.engagementRatePercent }.average() else 0.0
+        val engB = if (vidsB.isNotEmpty()) vidsB.map { it.engagementRatePercent }.average() else 0.0
+
+        val shortsPctA = if (vidsA.isNotEmpty()) (vidsA.count { it.isShort } * 100) / vidsA.size else 0
+        val shortsPctB = if (vidsB.isNotEmpty()) (vidsB.count { it.isShort } * 100) / vidsB.size else 0
+
+        val tagsA = vidsA.flatMap { it.tags.map { t -> t.lowercase().trim() } }.toSet()
+        val tagsB = vidsB.flatMap { it.tags.map { t -> t.lowercase().trim() } }.toSet()
+
+        val gaps = (tagsB - tagsA).take(6).map { tag ->
+            "Competitor '${chB.title}' ranks on '$tag' (${formatCompact(avgViewsB)} avg views) — consider a dedicated episode targeting this angle."
+        }.ifEmpty {
+            listOf(
+                "Compare '${chB.title}' top outlier video packaging and test a higher-curiosity title hook.",
+                "Bridge your top Shorts topics into 8–12 minute deep-dive videos to capture higher watch time."
+            )
+        }
+
+        CompetitorComparison(
+            primaryChannel = chA,
+            competitorChannel = chB,
+            primaryAvgViews = avgViewsA,
+            competitorAvgViews = avgViewsB,
+            primaryEngagementRate = engA,
+            competitorEngagementRate = engB,
+            primaryShortsPct = shortsPctA,
+            competitorShortsPct = shortsPctB,
+            keyTakeaways = gaps
+        )
     }
 
     companion object {
