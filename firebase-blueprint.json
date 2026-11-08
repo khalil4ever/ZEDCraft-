@@ -1,0 +1,316 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated ZEDCraft creator profile and active channel preferences.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the creator."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the creator."
+        },
+        "activeChannelId": {
+          "type": "string",
+          "description": "Currently selected YouTube channel ID."
+        },
+        "activeChannelTitle": {
+          "type": "string",
+          "description": "Currently selected YouTube channel title."
+        },
+        "niche": {
+          "type": "string",
+          "description": "Creator niche or primary content category."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "displayName", "createdAt", "updatedAt"]
+    },
+    "ConnectedChannel": {
+      "title": "ConnectedChannel",
+      "description": "A YouTube channel connected by the user for multi-channel switching.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "channelId": {
+          "type": "string",
+          "description": "YouTube channel ID (e.g., UC...)."
+        },
+        "title": {
+          "type": "string",
+          "description": "YouTube channel title."
+        },
+        "handle": {
+          "type": "string",
+          "description": "YouTube channel handle (e.g., @creator)."
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "description": "Channel avatar URL."
+        },
+        "subscriberCount": {
+          "type": "integer",
+          "description": "Total subscribers count."
+        },
+        "viewCount": {
+          "type": "integer",
+          "description": "Total channel views count."
+        },
+        "videoCount": {
+          "type": "integer",
+          "description": "Total uploaded videos count."
+        },
+        "healthScore": {
+          "type": "integer",
+          "description": "Computed ZEDCraft Channel Health Score (0-100)."
+        },
+        "isOAuthConnected": {
+          "type": "boolean",
+          "description": "Whether this channel was authorized via Google OAuth 2.0."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "userId",
+        "channelId",
+        "title",
+        "handle",
+        "thumbnailUrl",
+        "subscriberCount",
+        "viewCount",
+        "videoCount",
+        "healthScore",
+        "isOAuthConnected",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SavedWorkItem": {
+      "title": "SavedWorkItem",
+      "description": "Saved optimization scores, titles, descriptions, tags, keyword reports, audits, and health checks.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "workType": {
+          "type": "string",
+          "description": "Category of saved work (THUMBNAIL_SCORE, TITLE_OPTIMIZER, DESCRIPTION_OPTIMIZER, TAGS_GENERATOR, KEYWORD_RESEARCH, VIDEO_AUDIT, CHANNEL_HEALTH, TREND_IDEA, AB_COMPARE)."
+        },
+        "title": {
+          "type": "string",
+          "description": "Primary label or title of the saved item."
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Summary or secondary context."
+        },
+        "score": {
+          "type": "integer",
+          "description": "Numeric score (0-100) associated with the item."
+        },
+        "payloadJson": {
+          "type": "string",
+          "description": "Structured JSON details for revisiting, comparing, and exporting."
+        },
+        "channelId": {
+          "type": "string",
+          "description": "Optional associated YouTube channel ID."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "userId",
+        "workType",
+        "title",
+        "subtitle",
+        "score",
+        "payloadJson",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CompetitorChannel": {
+      "title": "CompetitorChannel",
+      "description": "Public competitor YouTube channel tracked by the user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "channelId": {
+          "type": "string",
+          "description": "YouTube channel ID."
+        },
+        "title": {
+          "type": "string",
+          "description": "Channel title."
+        },
+        "handle": {
+          "type": "string",
+          "description": "Channel custom URL or handle."
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "description": "Channel avatar URL."
+        },
+        "subscriberCount": {
+          "type": "integer",
+          "description": "Public subscriber count."
+        },
+        "viewCount": {
+          "type": "integer",
+          "description": "Public total views."
+        },
+        "videoCount": {
+          "type": "integer",
+          "description": "Public upload count."
+        },
+        "recentAvgViews": {
+          "type": "integer",
+          "description": "Computed average views across recent uploads."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "userId",
+        "channelId",
+        "title",
+        "handle",
+        "thumbnailUrl",
+        "subscriberCount",
+        "viewCount",
+        "videoCount",
+        "recentAvgViews",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ZdChatMessage": {
+      "title": "ZdChatMessage",
+      "description": "Chat message in the user's conversation history with ZD, the ZEDCraft AI assistant.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Conversation thread identifier."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "model"],
+          "description": "Sender role (user or model)."
+        },
+        "content": {
+          "type": "string",
+          "description": "Message text content."
+        },
+        "skillId": {
+          "type": "string",
+          "description": "ID of the ZD Skill module routed for this turn."
+        },
+        "toolCardJson": {
+          "type": "string",
+          "description": "Optional structured JSON card when ZD executes a ZEDCraft tool."
+        },
+        "modelUsed": {
+          "type": "string",
+          "description": "Gemini model identifier used to generate the response."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "userId",
+        "sessionId",
+        "role",
+        "content",
+        "skillId",
+        "modelUsed",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile document keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/channels/{channelId}": {
+      "schema": { "$ref": "#/entities/ConnectedChannel" },
+      "description": "Connected YouTube channels owned by the user."
+    },
+    "/users/{userId}/saved_work/{workId}": {
+      "schema": { "$ref": "#/entities/SavedWorkItem" },
+      "description": "Saved optimization results, audits, and scores owned by the user."
+    },
+    "/users/{userId}/competitors/{competitorId}": {
+      "schema": { "$ref": "#/entities/CompetitorChannel" },
+      "description": "Tracked competitor YouTube channels owned by the user."
+    },
+    "/users/{userId}/zd_chats/{messageId}": {
+      "schema": { "$ref": "#/entities/ZdChatMessage" },
+      "description": "ZD AI assistant chat history owned by the user."
+    }
+  }
+}

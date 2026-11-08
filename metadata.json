@@ -1,0 +1,6 @@
+{
+  "name": "ZEDCraft",
+  "description": "Free all-in-one YouTube growth, SEO, analytics, channel health, and AI optimization app.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

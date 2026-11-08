@@ -1,0 +1,264 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    // 1. UserProfile Validation Blueprint
+    function isValidUserProfile(data, userId) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId == userId &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+             (!('activeChannelId' in data) || (data.activeChannelId is string && data.activeChannelId.size() <= 120)) &&
+             (!('activeChannelTitle' in data) || (data.activeChannelTitle is string && data.activeChannelTitle.size() <= 200)) &&
+             (!('niche' in data) || (data.niche is string && data.niche.size() <= 120)) &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // 2. ConnectedChannel Validation Blueprint
+    function isValidConnectedChannel(data, userId) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId == userId &&
+             data.channelId is string && data.channelId.size() >= 1 && data.channelId.size() <= 120 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.handle is string && data.handle.size() <= 120 &&
+             data.thumbnailUrl is string && data.thumbnailUrl.size() <= 500 &&
+             data.subscriberCount is int && data.subscriberCount >= 0 &&
+             data.viewCount is int && data.viewCount >= 0 &&
+             data.videoCount is int && data.videoCount >= 0 &&
+             data.healthScore is int && data.healthScore >= 0 && data.healthScore <= 100 &&
+             data.isOAuthConnected is bool &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // 3. SavedWorkItem Validation Blueprint
+    function isValidSavedWorkItem(data, userId) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId == userId &&
+             data.workType is string && data.workType in [
+               'THUMBNAIL_SCORE',
+               'TITLE_OPTIMIZER',
+               'DESCRIPTION_OPTIMIZER',
+               'TAGS_GENERATOR',
+               'KEYWORD_RESEARCH',
+               'VIDEO_AUDIT',
+               'CHANNEL_HEALTH',
+               'TREND_IDEA',
+               'AB_COMPARE'
+             ] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 300 &&
+             data.subtitle is string && data.subtitle.size() <= 500 &&
+             data.score is int && data.score >= 0 && data.score <= 100 &&
+             data.payloadJson is string && data.payloadJson.size() >= 2 && data.payloadJson.size() <= 50000 &&
+             (!('channelId' in data) || (data.channelId is string && data.channelId.size() <= 120)) &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // 4. CompetitorChannel Validation Blueprint
+    function isValidCompetitorChannel(data, userId) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId == userId &&
+             data.channelId is string && data.channelId.size() >= 1 && data.channelId.size() <= 120 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.handle is string && data.handle.size() <= 120 &&
+             data.thumbnailUrl is string && data.thumbnailUrl.size() <= 500 &&
+             data.subscriberCount is int && data.subscriberCount >= 0 &&
+             data.viewCount is int && data.viewCount >= 0 &&
+             data.videoCount is int && data.videoCount >= 0 &&
+             data.recentAvgViews is int && data.recentAvgViews >= 0 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // 5. ZdChatMessage Validation Blueprint
+    function isValidZdChatMessage(data, userId) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId == userId &&
+             data.sessionId is string && data.sessionId.size() >= 1 && data.sessionId.size() <= 120 &&
+             data.role is string && data.role in ['user', 'model'] &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 30000 &&
+             data.skillId is string && data.skillId.size() >= 1 && data.skillId.size() <= 100 &&
+             (!('toolCardJson' in data) || (data.toolCardJson is string && data.toolCardJson.size() <= 30000)) &&
+             data.modelUsed is string && data.modelUsed.size() >= 1 && data.modelUsed.size() <= 100 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'email', 'activeChannelId', 'activeChannelTitle', 'niche', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'activeChannelId', 'activeChannelTitle', 'niche', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /channels/{channelId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(channelId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(channelId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'channelId', 'title', 'handle', 'thumbnailUrl',
+                           'subscriberCount', 'viewCount', 'videoCount', 'healthScore',
+                           'isOAuthConnected', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'channelId', 'title', 'handle', 'thumbnailUrl',
+                           'subscriberCount', 'viewCount', 'videoCount', 'healthScore',
+                           'isOAuthConnected', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidConnectedChannel(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(channelId) &&
+                         isValidConnectedChannel(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().channelId == existing().channelId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'handle', 'thumbnailUrl', 'subscriberCount',
+                           'viewCount', 'videoCount', 'healthScore', 'isOAuthConnected', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(channelId);
+      }
+
+      match /saved_work/{workId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(workId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(workId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'workType', 'title', 'subtitle', 'score',
+                           'payloadJson', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'workType', 'title', 'subtitle', 'score',
+                           'payloadJson', 'channelId', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidSavedWorkItem(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(workId) &&
+                         isValidSavedWorkItem(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().workType == existing().workType &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'subtitle', 'score', 'payloadJson', 'channelId', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(workId);
+      }
+
+      match /competitors/{competitorId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(competitorId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(competitorId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'channelId', 'title', 'handle', 'thumbnailUrl',
+                           'subscriberCount', 'viewCount', 'videoCount', 'recentAvgViews',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'channelId', 'title', 'handle', 'thumbnailUrl',
+                           'subscriberCount', 'viewCount', 'videoCount', 'recentAvgViews',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidCompetitorChannel(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(competitorId) &&
+                         isValidCompetitorChannel(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().channelId == existing().channelId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'handle', 'thumbnailUrl', 'subscriberCount',
+                           'viewCount', 'videoCount', 'recentAvgViews', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(competitorId);
+      }
+
+      match /zd_chats/{messageId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(messageId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(messageId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'sessionId', 'role', 'content', 'skillId',
+                           'modelUsed', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'sessionId', 'role', 'content', 'skillId',
+                           'toolCardJson', 'modelUsed', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidZdChatMessage(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(messageId) &&
+                         isValidZdChatMessage(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().sessionId == existing().sessionId &&
+                         incoming().role == existing().role &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'content', 'toolCardJson', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(messageId);
+      }
+    }
+  }
+}
