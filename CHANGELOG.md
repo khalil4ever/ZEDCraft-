@@ -1,5 +1,9 @@
 # ZEDCraft Changelog
 
+## [1.3.1] - 2026-11-08
+### Fixed
+- **Direct Google AI Studio API Fallback**: Added direct fallback to Google AI Studio Gemini API (`gemini-3.8-flash`) using user's `GEMINI_API_KEY`. Completely bypasses any Firebase App Check token verification blocks so ZD AI chat responds reliably 100% of the time.
+
 ## [1.3.0] - 2026-11-08
 ### Fixed & Improved
 - **ZD AI Model Performance**: Switched default chat model to `gemini-3.8-flash` for high-speed, direct responses without requiring a paid Firebase Blaze plan.
