@@ -41,8 +41,9 @@ class ZedCraftAiService {
 
     private val directHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(25, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(15, TimeUnit.SECONDS)
             .build()
     }
 
@@ -53,8 +54,7 @@ class ZedCraftAiService {
 
     /**
      * Direct call to Google AI Studio Gemini REST API using the user's GEMINI_API_KEY.
-     * Uses `gemini-3.5-flash` (or `gemini-3.5-flash-lite`), which responds in ~1 second with 200 OK.
-     * This bypasses Firebase App Check token requirements completely!
+     * Prioritizes `gemini-3.5-flash-lite` (~0.6s response) with fast automatic failover.
      */
     private suspend fun callDirectGoogleAiStudioApi(
         systemInstructionText: String,
@@ -63,7 +63,13 @@ class ZedCraftAiService {
         responseMimeType: String? = null
     ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val apiKey = getDirectGeminiApiKey() ?: return@withContext null
-        val modelsToTry = listOf("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash")
+        val modelsToTry = listOf(
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash"
+        )
         
         for (model in modelsToTry) {
             try {
@@ -1552,7 +1558,13 @@ class ZedCraftAiService {
         onStreamingUpdate: (String) -> Unit
     ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val apiKey = getDirectGeminiApiKey() ?: return@withContext null
-        val modelsToTry = listOf("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash")
+        val modelsToTry = listOf(
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash"
+        )
 
         for (model in modelsToTry) {
             try {

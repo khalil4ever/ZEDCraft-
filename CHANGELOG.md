@@ -1,5 +1,9 @@
 # ZEDCraft Changelog
 
+## [1.3.8] - 2026-11-09
+### Fixed
+- **Sub-Second ZD AI & Smart Suggestions Failover**: Switched primary direct model priority to `gemini-3.5-flash-lite` (~0.6s response time) with automatic fast failover to `gemini-flash-lite-latest` and `gemini-3.1-flash-lite` (8s connect / 12s read timeout instead of waiting 45s on timed-out `gemini-3.5-flash` endpoints), and restored `.env` build configuration so ZD AI chat and all optimizers respond immediately.
+
 ## [1.3.7] - 2026-11-09
 ### Protected Brand Assets Restored
 - **Original Splash & Loading Screen Restored**: Restored the exact original 3D glowing red YouTube-style play icon, breathing neon halo, floating sparkles, rainbow circular loading spinner, and rotating status messages (`"Optimizing YouTube..."`, `"Fetching data..."`, etc.) on the `#070B14` dark background.

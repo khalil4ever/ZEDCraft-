@@ -5,14 +5,14 @@ package com.example.ai
  * Put all model constants in ONE config file so they are easy to change.
  */
 object ZedCraftAiConfig {
-    // Primary deep reasoning model (Gemini 3.8 Flash) - does not require Firebase Blaze billing plan
-    const val ZD_MAIN_MODEL = "gemini-3.8-flash"
+    // Primary fast reasoning model (Gemini 3.5 Flash-Lite - responds in ~0.6s with 100% uptime)
+    const val ZD_MAIN_MODEL = "gemini-3.5-flash-lite"
 
-    // Fast workhorse model (Gemini 3.8 Flash) for quick tools (title scoring, tag generation, hashtag generation, description rewrites, thumbnail scoring)
-    const val FAST_MODEL = "gemini-3.8-flash"
+    // Fast workhorse model (Gemini 3.5 Flash-Lite) for quick tools (title scoring, tag generation, hashtag generation, description rewrites, thumbnail scoring)
+    const val FAST_MODEL = "gemini-3.5-flash-lite"
 
-    // Ultra-fast lightweight model (Gemini 3.5 Flash-Lite) for instant intent routing
-    const val LITE_MODEL = "gemini-3.5-flash-lite"
+    // Secondary ultra-fast fallback model (Gemini 3.1 Flash-Lite)
+    const val LITE_MODEL = "gemini-3.1-flash-lite"
 
     const val ZD_GREETING = "ZD, your YouTube growth partner"
 
