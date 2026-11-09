@@ -717,7 +717,7 @@ private fun LiveYouTubeApplyStatusCard(
                 Text(
                     text = errorMessage,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFFFB4AB),
+                    color = ZedCoralError,
                     modifier = Modifier.weight(1f)
                 )
             }

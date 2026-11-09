@@ -33,7 +33,9 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircleFilled
+import com.example.ui.theme.ZedTextPrimary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
@@ -783,46 +785,70 @@ private fun UnconnectedChannelHeroCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
-        border = BorderStroke(1.dp, ZedCardBorder)
+        border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.35f))
     ) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(150.dp)
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.img_zedcraft_hero_1794133254737),
-                    contentDescription = "ZEDCraft Studio",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, ZedGlassSurface)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                ZedPurpleAccent.copy(alpha = 0.36f),
+                                ZedDarkSurfaceElevated,
+                                ZedCyanPrimary.copy(alpha = 0.16f)
                             )
                         )
-                )
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp)
+                    )
+                    .padding(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text(
-                        text = "Connect Your YouTube Channel",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "Load your videos, score titles & thumbnails with ZD, and apply changes directly to YouTube.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ZedTextSecondary
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        ZedCyanPrimary,
+                                        ZedPurpleAccent
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(18.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "ZEDCraft Studio",
+                            tint = ZedDarkBackground,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Connect Your YouTube Channel",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ZedTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Load your videos, score titles & thumbnails with ZD, and apply changes directly to YouTube.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ZedTextSecondary
+                        )
+                    }
                 }
             }
 
@@ -832,9 +858,9 @@ private fun UnconnectedChannelHeroCard(
                     enabled = !isLoading,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(54.dp)
                         .testTag("home_oauth_connect_button"),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ZedCyanPrimary,
                         contentColor = ZedDarkBackground
@@ -848,7 +874,7 @@ private fun UnconnectedChannelHeroCard(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Connect YouTube Channel",
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
 
@@ -873,7 +899,7 @@ private fun UnconnectedChannelHeroCard(
                         modifier = Modifier
                             .weight(1f)
                             .testTag("home_channel_input"),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(18.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = ZedCyanPrimary,
                             unfocusedBorderColor = ZedCardBorder,
@@ -887,8 +913,8 @@ private fun UnconnectedChannelHeroCard(
                         modifier = Modifier
                             .height(52.dp)
                             .testTag("home_connect_channel_button"),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, ZedPurpleAccent.copy(alpha = 0.6f))
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.55f))
                     ) {
                         if (isLoading) {
                             CircularProgressIndicator(
@@ -897,7 +923,7 @@ private fun UnconnectedChannelHeroCard(
                                 color = ZedCyanPrimary
                             )
                         } else {
-                            Text("Audit", fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Audit", fontWeight = FontWeight.Bold, color = ZedCyanPrimary)
                         }
                     }
                 }

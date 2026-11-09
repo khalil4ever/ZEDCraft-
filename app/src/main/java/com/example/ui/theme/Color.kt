@@ -1,44 +1,82 @@
 package com.example.ui.theme
 
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-// ZEDCraft 2026 Brand Palette (Dark Cyan Glass Creator Studio)
-val ZedBgPrimary = Color(0xFF070A12)
-val ZedBgSecondary = Color(0xFF0E1322)
-val ZedSurfaceCard = Color(0xFF131A2E)
-val ZedSurfaceElevated = Color(0xFF1A233D)
-val ZedGlassBorder = Color(0xFF283558)
+/**
+ * ZEDCraft Brand Color System (Extracted from Brand Palette Reference Image 2):
+ * - Brand Color (1): Deep Kelly Forest Green (#007E08)
+ * - Brand Color (2): Electric Volt Chartreuse Lime (#D9FF00)
+ *
+ * All design tokens (primary, secondary, accent, background, surface, surface-elevated,
+ * border, text-primary, text-secondary, success, warning, error, and glow) are derived
+ * exclusively from this palette.
+ */
 
-val ZedCyan = Color(0xFF00E5FF)
-val ZedCyanSoft = Color(0xFF00B8D4)
-val ZedViolet = Color(0xFF8B5CF6)
-val ZedVioletDeep = Color(0xFF6D28D9)
-val ZedPinkAccent = Color(0xFFF43F5E)
+// Core Brand Hex Tokens from Image 2
+val ZedBrandVoltLime = Color(0xFFD9FF00)       // Primary (#D9FF00)
+val ZedBrandKellyGreen = Color(0xFF007E08)     // Secondary (#007E08)
+val ZedBrandMidGradient = Color(0xFF7ED903)    // Midpoint of #007E08 -> #D9FF00 gradient
+val ZedBrandLegibleGreen = Color(0xFF4CE856)   // Tinted bright variation of #007E08 for high-contrast text/icons on dark cards
 
-val ZedSuccess = Color(0xFF10B981)
-val ZedWarning = Color(0xFFF59E0B)
-val ZedError = Color(0xFFEF4444)
+// Dark Mode Surfaces (Default - Deep Obsidian Forest built from #007E08 & #D9FF00)
+val ZedBgPrimary = Color(0xFF061107)           // background
+val ZedBgSecondary = Color(0xFF0A1B0C)         // surface
+val ZedSurfaceCard = Color(0xFF0F2612)         // surface-card (glassmorphism base)
+val ZedSurfaceElevated = Color(0xFF16361A)     // surface-elevated
+val ZedGlassBorder = Color(0xFF28592E)         // border (fine 1px specular border)
 
-val ZedTextPrimary = Color(0xFFF8FAFC)
-val ZedTextSecondary = Color(0xFF94A3B8)
-val ZedTextMuted = Color(0xFF64748B)
+// Brand Semantic Tokens
+val ZedCyan = ZedBrandVoltLime                 // primary (#D9FF00)
+val ZedCyanSoft = Color(0xFFB8E600)            // primary-soft
+val ZedViolet = ZedBrandLegibleGreen           // secondary legible accent for dark surfaces
+val ZedVioletDeep = ZedBrandKellyGreen         // secondary deep (#007E08)
+val ZedPinkAccent = Color(0xFFA8F205)          // accent highlight
 
-// Semantic aliases used across ZEDCraft screens
+// Status Tokens (harmonized with #007E08 & #D9FF00)
+val ZedSuccess = Color(0xFF42E64C)             // success
+val ZedWarning = Color(0xFFD9FF00)             // warning (#D9FF00 Volt Lime)
+val ZedError = Color(0xFFFF5A4F)               // error (high-contrast warm coral)
+val ZedBrandGlow = Color(0xFFD9FF00)           // glow
+
+// Typography Contrast Tokens
+val ZedTextPrimary = Color(0xFFF6FFEE)         // text-primary (crisp ivory-lime white)
+val ZedTextSecondary = Color(0xFFB7D9BA)       // text-secondary (high-contrast sage-mint)
+val ZedTextMuted = Color(0xFF77A37B)           // text-muted (muted forest sage)
+val ZedOnPrimaryDark = Color(0xFF051806)       // deep forest ink for text/icons on #D9FF00 buttons
+
+// Reusable Brand Gradient Brushes (matching Image 1 & Image 2)
+val ZedBrandLinearGradient: Brush = Brush.linearGradient(
+    colors = listOf(ZedBrandVoltLime, ZedBrandMidGradient, ZedBrandKellyGreen)
+)
+
+val ZedBrandReverseLinearGradient: Brush = Brush.linearGradient(
+    colors = listOf(ZedBrandKellyGreen, ZedBrandMidGradient, ZedBrandVoltLime)
+)
+
+val ZedGlassCardGradient: Brush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF153419),
+        Color(0xFF0D2110)
+    )
+)
+
+// Semantic aliases used across all ZEDCraft screens
 val ZedDarkBackground = ZedBgPrimary
 val ZedGlassSurface = ZedSurfaceCard
 val ZedDarkSurfaceElevated = ZedSurfaceElevated
 val ZedCardBorder = ZedGlassBorder
-val ZedCyanPrimary = ZedCyan
-val ZedPurpleAccent = ZedViolet
+val ZedCyanPrimary = ZedBrandVoltLime
+val ZedPurpleAccent = ZedBrandLegibleGreen
 val ZedEmeraldSuccess = ZedSuccess
 val ZedAmberWarning = ZedWarning
 val ZedCoralError = ZedError
 
-// Light Mode Palette
-val ZedLightBg = Color(0xFFF8FAFC)
+// Light Mode Palette (built from the same #007E08 & #D9FF00 palette + Image 1 soft glass style)
+val ZedLightBg = Color(0xFFF2F9F0)
 val ZedLightSurface = Color(0xFFFFFFFF)
-val ZedLightCard = Color(0xFFF1F5F9)
-val ZedLightTextPrimary = Color(0xFF0F172A)
-val ZedLightTextSecondary = Color(0xFF475569)
-val ZedLightPrimary = Color(0xFF0284C7)
-val ZedLightSecondary = Color(0xFF6D28D9)
+val ZedLightCard = Color(0xFFE6F4E3)
+val ZedLightTextPrimary = Color(0xFF061B08)
+val ZedLightTextSecondary = Color(0xFF2D5931)
+val ZedLightPrimary = Color(0xFF007E08)
+val ZedLightSecondary = Color(0xFF55A600)

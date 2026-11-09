@@ -1,5 +1,10 @@
 # ZEDCraft Changelog
 
+## [1.3.6] - 2026-11-09
+### Visual Redesign & Brand Color System
+- **New Brand Color Palette (`#007E08` & `#D9FF00`)**: Rebuilt the entire app's color system around Electric Volt Lime (`#D9FF00`), Deep Kelly Forest Green (`#007E08`), smooth lime-to-green gradients (`#D9FF00` ↔ `#7ED903` ↔ `#007E08`), and deep obsidian-forest dark surfaces (`#061107` / `#0F2612`) with high-contrast typography.
+- **2026 Sculpted Glassmorphic UI**: Redesigned the Splash Screen, Onboarding & Connect Screen, Top Header, Glowing Update Pop-Up, Score Rings, Smart Suggestion Cards, ZD Chat Markdown Renderer, and Bottom Navigation with sculpted 3D glass squircle medallions, ambient glowing corner orbs, capsule CTA buttons, and refined 1px frosted borders.
+
 ## [1.3.5] - 2026-11-09
 ### Added & Improved
 - **Automatic Glowing Update Pop-Up**: Silently checks for newer ZEDCraft versions on app launch and foreground resume when online. Features a dark glassmorphism modal with a pulsing cyan/purple glow, smooth in-card download progress bar (`%` and `MB`), connection-lost resume support, storage & APK verification, and automatic package installer handoff.

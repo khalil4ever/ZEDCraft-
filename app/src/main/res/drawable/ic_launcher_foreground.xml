@@ -1,8 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="70dp"
-        android:height="70dp"
-        android:gravity="center"
-        android:drawable="@drawable/ic_zedcraft_logo" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer sculpted squircle medallion in #D9FF00 to #007E08 gradient -->
+    <path
+        android:pathData="M36,24 L72,24 C78.6,24 84,29.4 84,36 L84,72 C84,78.6 78.6,84 72,84 L36,84 C29.4,84 24,78.6 24,72 L24,36 C24,29.4 29.4,24 36,24 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="24"
+                android:startY="24"
+                android:endX="84"
+                android:endY="84"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFD9FF00" />
+                <item android:offset="0.5" android:color="#FF7ED903" />
+                <item android:offset="1.0" android:color="#FF007E08" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Crisp inner play emblem in deep obsidian forest (#061107) -->
+    <path
+        android:fillColor="#FF061107"
+        android:pathData="M45,38 L45,70 L71,54 Z" />
+</vector>

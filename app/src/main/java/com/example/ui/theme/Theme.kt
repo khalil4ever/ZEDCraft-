@@ -15,16 +15,16 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
 private val ZedDarkColorScheme = darkColorScheme(
-    primary = ZedCyan,
-    onPrimary = Color(0xFF001F26),
-    primaryContainer = Color(0xFF0B2E3B),
-    onPrimaryContainer = ZedCyan,
-    secondary = ZedViolet,
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFF281B4D),
-    onSecondaryContainer = Color(0xFFDDD6FE),
-    tertiary = ZedSuccess,
-    onTertiary = Color(0xFF002114),
+    primary = ZedBrandVoltLime,
+    onPrimary = ZedOnPrimaryDark,
+    primaryContainer = Color(0xFF143818),
+    onPrimaryContainer = ZedBrandVoltLime,
+    secondary = ZedBrandLegibleGreen,
+    onSecondary = ZedOnPrimaryDark,
+    secondaryContainer = ZedBrandKellyGreen,
+    onSecondaryContainer = ZedTextPrimary,
+    tertiary = ZedBrandMidGradient,
+    onTertiary = ZedOnPrimaryDark,
     background = ZedBgPrimary,
     onBackground = ZedTextPrimary,
     surface = ZedBgSecondary,
@@ -39,13 +39,13 @@ private val ZedDarkColorScheme = darkColorScheme(
 private val ZedLightColorScheme = lightColorScheme(
     primary = ZedLightPrimary,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE0F2FE),
-    onPrimaryContainer = Color(0xFF0369A1),
+    primaryContainer = Color(0xFFD8F5D2),
+    onPrimaryContainer = Color(0xFF004D04),
     secondary = ZedLightSecondary,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFEDE9FE),
-    onSecondaryContainer = Color(0xFF5B21B6),
-    tertiary = ZedSuccess,
+    secondaryContainer = Color(0xFFECFCCB),
+    onSecondaryContainer = Color(0xFF285400),
+    tertiary = ZedBrandKellyGreen,
     onTertiary = Color.White,
     background = ZedLightBg,
     onBackground = ZedLightTextPrimary,
@@ -53,21 +53,21 @@ private val ZedLightColorScheme = lightColorScheme(
     onSurface = ZedLightTextPrimary,
     surfaceVariant = ZedLightCard,
     onSurfaceVariant = ZedLightTextSecondary,
-    outline = Color(0xFFCBD5E1),
+    outline = Color(0xFFB7D9B9),
     error = ZedError,
     onError = Color.White
 )
 
 val ZedShapes = Shapes(
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(22.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
     extraLarge = RoundedCornerShape(28.dp)
 )
 
 @Composable
 fun ZEDCraftTheme(
-    darkTheme: Boolean = true, // Default to dark mode per user instructions
+    darkTheme: Boolean = true, // Default to dark mode built from the brand colors
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) ZedDarkColorScheme else ZedLightColorScheme
@@ -81,7 +81,6 @@ fun ZEDCraftTheme(
             @Suppress("DEPRECATION")
             window.navigationBarColor = colorScheme.surface.toArgb()
             val insetsController = WindowCompat.getInsetsController(window, view)
-            // Light (white) status bar icons on Dark Navy header; dark icons on Light surface
             insetsController.isAppearanceLightStatusBars = !darkTheme
             insetsController.isAppearanceLightNavigationBars = !darkTheme
         }

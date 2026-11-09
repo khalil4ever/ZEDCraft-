@@ -9,7 +9,9 @@ import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -665,24 +667,43 @@ fun CreditsScreen(
                 Box(
                     modifier = Modifier
                         .size(96.dp)
-                        .clip(RoundedCornerShape(26.dp))
+                        .clip(RoundedCornerShape(28.dp))
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(
                                     ZedCyanPrimary.copy(alpha = 0.25f),
-                                    ZedPurpleAccent.copy(alpha = 0.25f)
+                                    ZedPurpleAccent.copy(alpha = 0.32f)
                                 )
                             )
+                        )
+                        .border(
+                            width = 1.2.dp,
+                            color = ZedCyanPrimary.copy(alpha = 0.55f),
+                            shape = RoundedCornerShape(28.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_zedcraft_logo),
-                        contentDescription = "ZEDCraft Logo",
+                    Box(
                         modifier = Modifier
-                            .size(84.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                    )
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        ZedCyanPrimary,
+                                        ZedPurpleAccent
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "ZEDCraft Logo",
+                            tint = ZedDarkBackground,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))

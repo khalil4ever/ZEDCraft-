@@ -413,7 +413,7 @@ fun ZdMarkdownMessage(
     val bodyTextStyle = MaterialTheme.typography.bodyMedium.copy(
         fontSize = bodyFontSize,
         lineHeight = bodyLineHeight,
-        color = Color(0xFFEAF2F8)
+        color = com.example.ui.theme.ZedTextPrimary
     )
 
     Column(
@@ -592,8 +592,8 @@ private fun ZdCodeBlockCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF070B12),
+        shape = RoundedCornerShape(14.dp),
+        color = com.example.ui.theme.ZedBgPrimary,
         border = BorderStroke(1.dp, ZedCardBorder)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -601,7 +601,7 @@ private fun ZdCodeBlockCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF0D1420))
+                    .background(com.example.ui.theme.ZedBgSecondary)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -654,7 +654,7 @@ private fun ZdCodeBlockCard(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
-                        color = Color(0xFFE6EDF3)
+                        color = com.example.ui.theme.ZedTextPrimary
                     )
                 )
             }
@@ -673,8 +673,8 @@ private fun ZdMarkdownTable(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF0A101A),
+        shape = RoundedCornerShape(14.dp),
+        color = com.example.ui.theme.ZedBgPrimary,
         border = BorderStroke(1.dp, ZedCardBorder)
     ) {
         Box(
@@ -714,7 +714,7 @@ private fun ZdMarkdownTable(
 
                 // Data Rows
                 rows.forEachIndexed { rIdx, rowCells ->
-                    val rowBg = if (rIdx % 2 == 0) Color(0xFF0A101A) else Color(0xFF0E1624)
+                    val rowBg = if (rIdx % 2 == 0) com.example.ui.theme.ZedBgPrimary else com.example.ui.theme.ZedBgSecondary
                     Row(
                         modifier = Modifier
                             .background(rowBg)
@@ -733,7 +733,7 @@ private fun ZdMarkdownTable(
                                 ZdInlineRichText(
                                     text = cellText,
                                     baseStyle = MaterialTheme.typography.bodySmall.copy(
-                                        color = Color(0xFFE6EDF3),
+                                        color = com.example.ui.theme.ZedTextPrimary,
                                         lineHeight = 18.sp
                                     ),
                                     onLinkClick = { url -> openExternalLink(context, url) }
@@ -817,7 +817,7 @@ fun buildInlineMarkdownAnnotatedString(rawText: String): AnnotatedString {
                     withStyle(
                         SpanStyle(
                             color = ZedCyanPrimary,
-                            background = Color(0xFF0E2536),
+                            background = com.example.ui.theme.ZedDarkSurfaceElevated,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Medium,
                             fontSize = 13.sp

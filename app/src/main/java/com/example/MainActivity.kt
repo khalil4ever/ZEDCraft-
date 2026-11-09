@@ -505,8 +505,9 @@ private fun FixedAppHeader(
                         onClick = onBackClick,
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(13.dp))
                             .background(ZedDarkSurfaceElevated)
+                            .border(1.dp, ZedCardBorder, RoundedCornerShape(13.dp))
                             .testTag("header_back_button")
                     ) {
                         Icon(
@@ -517,13 +518,40 @@ private fun FixedAppHeader(
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                 } else {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_zedcraft_logo),
-                        contentDescription = "ZEDCraft Logo",
+                    // Sculpted 3D Squircle Brand Medallion (matching Image 1 & Image 2)
+                    Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                    )
+                            .size(40.dp)
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = RoundedCornerShape(13.dp),
+                                ambientColor = ZedCyanPrimary.copy(alpha = 0.45f),
+                                spotColor = ZedPurpleAccent.copy(alpha = 0.45f)
+                            )
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        ZedCyanPrimary,
+                                        com.example.ui.theme.ZedBrandMidGradient,
+                                        com.example.ui.theme.ZedBrandKellyGreen
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(13.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "ZEDCraft Logo",
+                            tint = com.example.ui.theme.ZedOnPrimaryDark,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.width(10.dp))
                 }
 
@@ -532,7 +560,7 @@ private fun FixedAppHeader(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
+                        color = com.example.ui.theme.ZedTextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -559,7 +587,7 @@ private fun FixedAppHeader(
                     color = ZedDarkSurfaceElevated,
                     border = BorderStroke(
                         1.dp,
-                        if (activeChannelTitle != null) ZedEmeraldSuccess.copy(alpha = 0.55f) else ZedCyanPrimary.copy(alpha = 0.5f)
+                        if (activeChannelTitle != null) ZedEmeraldSuccess.copy(alpha = 0.6f) else ZedCyanPrimary.copy(alpha = 0.55f)
                     )
                 ) {
                     Row(
@@ -589,7 +617,7 @@ private fun FixedAppHeader(
                             text = activeChannelTitle?.take(12) ?: "Connect",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = com.example.ui.theme.ZedTextPrimary,
                             maxLines = 1
                         )
                     }
@@ -599,8 +627,9 @@ private fun FixedAppHeader(
                     onClick = onOpenCreditsClick,
                     modifier = Modifier
                         .size(38.dp)
-                        .clip(CircleShape)
+                        .clip(RoundedCornerShape(13.dp))
                         .background(ZedDarkSurfaceElevated)
+                        .border(1.dp, ZedCardBorder, RoundedCornerShape(13.dp))
                         .testTag("header_credits_button")
                 ) {
                     Icon(
@@ -819,8 +848,8 @@ private fun ZedCraftGlowingUpdateModal(
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xDD070B14),
-                            Color(0xF204070D)
+                            ZedDarkBackground.copy(alpha = 0.88f),
+                            ZedDarkBackground.copy(alpha = 0.96f)
                         )
                     )
                 )
@@ -832,7 +861,7 @@ private fun ZedCraftGlowingUpdateModal(
                 enter = fadeIn(tween(240)) + scaleIn(initialScale = 0.88f, animationSpec = tween(260, easing = FastOutSlowInEasing)),
                 exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.92f, animationSpec = tween(200)) + slideOutVertically(targetOffsetY = { it / 6 }, animationSpec = tween(200))
             ) {
-                // Outer glowing halo + dark glassmorphism card
+                // Outer glowing halo + dark glassmorphism card in #D9FF00 & #007E08
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -840,14 +869,14 @@ private fun ZedCraftGlowingUpdateModal(
                             elevation = 28.dp,
                             shape = RoundedCornerShape(28.dp),
                             ambientColor = ZedCyanPrimary.copy(alpha = pulseAlpha * 0.65f),
-                            spotColor = ZedPurpleAccent.copy(alpha = pulseAlpha * 0.75f)
+                            spotColor = com.example.ui.theme.ZedBrandKellyGreen.copy(alpha = pulseAlpha * 0.85f)
                         )
                         .clip(RoundedCornerShape(28.dp))
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    Color(0xFF10192B),
-                                    Color(0xFF0A101D)
+                                    ZedDarkSurfaceElevated,
+                                    ZedGlassSurface
                                 )
                             )
                         )
@@ -856,7 +885,7 @@ private fun ZedCraftGlowingUpdateModal(
                             brush = Brush.linearGradient(
                                 colors = listOf(
                                     ZedCyanPrimary.copy(alpha = pulseAlpha),
-                                    ZedPurpleAccent.copy(alpha = pulseAlpha),
+                                    com.example.ui.theme.ZedBrandKellyGreen.copy(alpha = pulseAlpha),
                                     ZedCyanPrimary.copy(alpha = pulseAlpha * 0.8f)
                                 )
                             ),
