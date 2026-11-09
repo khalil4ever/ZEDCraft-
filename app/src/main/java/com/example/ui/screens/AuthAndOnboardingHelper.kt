@@ -299,53 +299,28 @@ fun OnboardingAndConnectScreen(
                 .padding(horizontal = 22.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Sculpted 3D Glass Squircle Emblem Medallion (matching Image 1's center hero squircle)
+            // Protected Brand Asset: Original ZEDCraft Logo with original colors
             Box(
                 modifier = Modifier
-                    .size(116.dp)
-                    .clip(RoundedCornerShape(32.dp))
+                    .size(104.dp)
+                    .clip(RoundedCornerShape(28.dp))
                     .background(
-                        Brush.verticalGradient(
+                        Brush.linearGradient(
                             colors = listOf(
-                                ZedDarkSurfaceElevated,
-                                ZedGlassSurface
+                                Color(0xFF00E5FF).copy(alpha = 0.25f),
+                                Color(0xFF8B5CF6).copy(alpha = 0.25f)
                             )
                         )
-                    )
-                    .border(
-                        width = 1.8.dp,
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                ZedCyanPrimary.copy(alpha = 0.7f),
-                                com.example.ui.theme.ZedBrandKellyGreen.copy(alpha = 0.55f)
-                            )
-                        ),
-                        shape = RoundedCornerShape(32.dp)
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
+                Image(
+                    painter = painterResource(id = R.drawable.ic_zedcraft_logo),
+                    contentDescription = "ZEDCraft Logo",
                     modifier = Modifier
-                        .size(66.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    ZedCyanPrimary,
-                                    com.example.ui.theme.ZedBrandMidGradient,
-                                    com.example.ui.theme.ZedBrandKellyGreen
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "ZEDCraft Emblem",
-                        tint = com.example.ui.theme.ZedOnPrimaryDark,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
+                        .size(90.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                )
             }
 
             Spacer(modifier = Modifier.height(18.dp))

@@ -809,32 +809,13 @@ private fun UnconnectedChannelHeroCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Box(
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_zedcraft_logo),
+                        contentDescription = "ZEDCraft Logo",
                         modifier = Modifier
                             .size(58.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        ZedCyanPrimary,
-                                        ZedPurpleAccent
-                                    )
-                                )
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = Color.White.copy(alpha = 0.35f),
-                                shape = RoundedCornerShape(18.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "ZEDCraft Studio",
-                            tint = ZedDarkBackground,
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
+                            .clip(RoundedCornerShape(16.dp))
+                    )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Connect Your YouTube Channel",

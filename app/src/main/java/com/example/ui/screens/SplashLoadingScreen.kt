@@ -49,20 +49,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.ui.theme.ZedBgPrimary
-import com.example.ui.theme.ZedBrandKellyGreen
-import com.example.ui.theme.ZedBrandMidGradient
-import com.example.ui.theme.ZedBrandVoltLime
-import com.example.ui.theme.ZedOnPrimaryDark
-import com.example.ui.theme.ZedSurfaceCard
-import com.example.ui.theme.ZedSurfaceElevated
-import com.example.ui.theme.ZedTextPrimary
-import com.example.ui.theme.ZedTextSecondary
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.delay
+
+private val SplashDarkBackground = Color(0xFF070B14)
+private val YouTubeBrightRed = Color(0xFFFF0000)
+private val YouTubeDeepRed = Color(0xFFB80000)
+private val YouTubeNeonGlow = Color(0xFFFF2A2A)
 
 private val SPLASH_STATUS_MESSAGES = listOf(
     "Optimizing YouTube...",
@@ -78,7 +73,7 @@ private data class SparkleParticle(
     val baseRadiusFraction: Float,
     val speedMultiplier: Float,
     val sizeDp: Float,
-    val isVoltLime: Boolean,
+    val isRed: Boolean,
     val phaseOffset: Float
 )
 
@@ -110,7 +105,7 @@ fun ZedCraftSplashLoadingScreen(
 
     val infiniteTransition = rememberInfiniteTransition(label = "splash_infinite")
 
-    // Soft breathing #D9FF00 / #007E08 neon halo (~1.5s cycle)
+    // Soft breathing red neon halo (~1.5s cycle)
     val haloPulse by infiniteTransition.animateFloat(
         initialValue = 0.86f,
         targetValue = 1.16f,
@@ -121,7 +116,7 @@ fun ZedCraftSplashLoadingScreen(
         label = "halo_pulse"
     )
 
-    // Sweeping light shine across the 3D squircle medallion every ~2 seconds
+    // Sweeping light shine across the 3D play button every ~2 seconds
     val shineProgress by infiniteTransition.animateFloat(
         initialValue = -0.6f,
         targetValue = 1.6f,
@@ -143,7 +138,7 @@ fun ZedCraftSplashLoadingScreen(
         label = "particle_phase"
     )
 
-    // Brand gradient circular spinner rotation
+    // Rainbow circular spinner rotation
     val spinnerRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -156,72 +151,24 @@ fun ZedCraftSplashLoadingScreen(
 
     val sparkles = remember {
         listOf(
-            SparkleParticle(angleRad = 0.35f, baseRadiusFraction = 0.70f, speedMultiplier = 1.0f, sizeDp = 3.2f, isVoltLime = true, phaseOffset = 0.0f),
-            SparkleParticle(angleRad = 1.15f, baseRadiusFraction = 0.82f, speedMultiplier = 1.3f, sizeDp = 2.6f, isVoltLime = false, phaseOffset = 1.1f),
-            SparkleParticle(angleRad = 2.05f, baseRadiusFraction = 0.74f, speedMultiplier = 0.9f, sizeDp = 3.5f, isVoltLime = true, phaseOffset = 2.2f),
-            SparkleParticle(angleRad = 2.85f, baseRadiusFraction = 0.86f, speedMultiplier = 1.2f, sizeDp = 2.8f, isVoltLime = false, phaseOffset = 3.0f),
-            SparkleParticle(angleRad = 3.75f, baseRadiusFraction = 0.72f, speedMultiplier = 1.1f, sizeDp = 3.0f, isVoltLime = true, phaseOffset = 4.1f),
-            SparkleParticle(angleRad = 4.65f, baseRadiusFraction = 0.84f, speedMultiplier = 1.4f, sizeDp = 2.5f, isVoltLime = false, phaseOffset = 5.0f),
-            SparkleParticle(angleRad = 5.45f, baseRadiusFraction = 0.76f, speedMultiplier = 1.0f, sizeDp = 3.4f, isVoltLime = true, phaseOffset = 5.7f),
-            SparkleParticle(angleRad = 6.05f, baseRadiusFraction = 0.88f, speedMultiplier = 1.25f, sizeDp = 2.4f, isVoltLime = false, phaseOffset = 1.8f)
+            SparkleParticle(angleRad = 0.35f, baseRadiusFraction = 0.70f, speedMultiplier = 1.0f, sizeDp = 3.2f, isRed = false, phaseOffset = 0.0f),
+            SparkleParticle(angleRad = 1.15f, baseRadiusFraction = 0.82f, speedMultiplier = 1.3f, sizeDp = 2.6f, isRed = true, phaseOffset = 1.1f),
+            SparkleParticle(angleRad = 2.05f, baseRadiusFraction = 0.74f, speedMultiplier = 0.9f, sizeDp = 3.5f, isRed = false, phaseOffset = 2.2f),
+            SparkleParticle(angleRad = 2.85f, baseRadiusFraction = 0.86f, speedMultiplier = 1.2f, sizeDp = 2.8f, isRed = true, phaseOffset = 3.0f),
+            SparkleParticle(angleRad = 3.75f, baseRadiusFraction = 0.72f, speedMultiplier = 1.1f, sizeDp = 3.0f, isRed = false, phaseOffset = 4.1f),
+            SparkleParticle(angleRad = 4.65f, baseRadiusFraction = 0.84f, speedMultiplier = 1.4f, sizeDp = 2.5f, isRed = true, phaseOffset = 5.0f),
+            SparkleParticle(angleRad = 5.45f, baseRadiusFraction = 0.76f, speedMultiplier = 1.0f, sizeDp = 3.4f, isRed = false, phaseOffset = 5.7f),
+            SparkleParticle(angleRad = 6.05f, baseRadiusFraction = 0.88f, speedMultiplier = 1.25f, sizeDp = 2.4f, isRed = true, phaseOffset = 1.8f)
         )
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(ZedBgPrimary)
+            .background(SplashDarkBackground)
             .testTag("zedcraft_splash_loading_screen"),
         contentAlignment = Alignment.Center
     ) {
-        // Ambient Soft Glowing Corner Orbs (inspired by Image 1's sculpted glass orbs)
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val topOrbRadius = size.minDimension * 0.42f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        ZedBrandKellyGreen.copy(alpha = 0.32f),
-                        ZedBrandVoltLime.copy(alpha = 0.08f),
-                        Color.Transparent
-                    ),
-                    center = Offset(size.width * 0.08f, size.height * 0.06f),
-                    radius = topOrbRadius
-                ),
-                radius = topOrbRadius,
-                center = Offset(size.width * 0.08f, size.height * 0.06f)
-            )
-
-            val rightOrbRadius = size.minDimension * 0.26f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        ZedBrandVoltLime.copy(alpha = 0.16f),
-                        ZedBrandKellyGreen.copy(alpha = 0.06f),
-                        Color.Transparent
-                    ),
-                    center = Offset(size.width * 0.94f, size.height * 0.30f),
-                    radius = rightOrbRadius
-                ),
-                radius = rightOrbRadius,
-                center = Offset(size.width * 0.94f, size.height * 0.30f)
-            )
-
-            val bottomOrbRadius = size.minDimension * 0.45f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        ZedBrandKellyGreen.copy(alpha = 0.28f),
-                        ZedBrandVoltLime.copy(alpha = 0.09f),
-                        Color.Transparent
-                    ),
-                    center = Offset(size.width * 0.90f, size.height * 0.92f),
-                    radius = bottomOrbRadius
-                ),
-                radius = bottomOrbRadius,
-                center = Offset(size.width * 0.90f, size.height * 0.92f)
-            )
-        }
-
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -229,21 +176,21 @@ fun ZedCraftSplashLoadingScreen(
                 .scale(entranceScale)
                 .alpha(entranceAlpha)
         ) {
-            // Center Sculpted 3D Glass Squircle Medallion + #D9FF00 / #007E08 Play Emblem
+            // Center Glossy 3D Glass Red Play Button + Breathing Neon Halo + Floating Sparkles
             Box(
-                modifier = Modifier.size(214.dp),
+                modifier = Modifier.size(210.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val center = Offset(size.width / 2f, size.height / 2f)
                     val maxRadius = size.minDimension / 2f
 
-                    // 1. Soft breathing #D9FF00 & #007E08 neon halo behind the squircle medallion
+                    // 1. Soft breathing red neon halo behind the 3D button
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                ZedBrandVoltLime.copy(alpha = 0.38f * (haloPulse / 1.16f)),
-                                ZedBrandKellyGreen.copy(alpha = 0.26f),
+                                YouTubeNeonGlow.copy(alpha = 0.44f * (haloPulse / 1.16f)),
+                                YouTubeBrightRed.copy(alpha = 0.18f),
                                 Color.Transparent
                             ),
                             center = center,
@@ -253,7 +200,7 @@ fun ZedCraftSplashLoadingScreen(
                         center = center
                     )
 
-                    // 2. Floating #D9FF00 & #007E08 sparkle particles
+                    // 2. Tiny floating red & white sparkle particles around the icon
                     sparkles.forEach { sp ->
                         val drift = sin(particlePhase * sp.speedMultiplier + sp.phaseOffset)
                         val r = maxRadius * sp.baseRadiusFraction + drift * 8.dp.toPx()
@@ -261,11 +208,11 @@ fun ZedCraftSplashLoadingScreen(
                         val px = center.x + cos(angle) * r
                         val py = center.y + sin(angle) * r
                         val twinkleAlpha = ((sin(particlePhase * 2f + sp.phaseOffset) + 1f) / 2f)
-                            .coerceIn(0.24f, 0.95f)
-                        val particleColor = if (sp.isVoltLime) {
-                            ZedBrandVoltLime.copy(alpha = twinkleAlpha)
+                            .coerceIn(0.22f, 0.95f)
+                        val particleColor = if (sp.isRed) {
+                            Color(0xFFFF4D4D).copy(alpha = twinkleAlpha)
                         } else {
-                            ZedBrandMidGradient.copy(alpha = twinkleAlpha)
+                            Color.White.copy(alpha = twinkleAlpha)
                         }
                         drawCircle(
                             color = particleColor,
@@ -274,56 +221,22 @@ fun ZedCraftSplashLoadingScreen(
                         )
                     }
 
-                    // 3. Outer Frosted Squircle Medallion (matching Image 1's sculpted squircle)
-                    val squircleSize = size.minDimension * 0.64f
-                    val sqLeft = center.x - squircleSize / 2f
-                    val sqTop = center.y - squircleSize / 2f
-                    val sqCorner = CornerRadius(squircleSize * 0.32f, squircleSize * 0.32f)
-
-                    drawRoundRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                ZedSurfaceElevated,
-                                ZedSurfaceCard
-                            ),
-                            startY = sqTop,
-                            endY = sqTop + squircleSize
-                        ),
-                        topLeft = Offset(sqLeft, sqTop),
-                        size = Size(squircleSize, squircleSize),
-                        cornerRadius = sqCorner
-                    )
-
-                    drawRoundRect(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                ZedBrandVoltLime.copy(alpha = 0.65f),
-                                ZedBrandKellyGreen.copy(alpha = 0.45f)
-                            ),
-                            start = Offset(sqLeft, sqTop),
-                            end = Offset(sqLeft + squircleSize, sqTop + squircleSize)
-                        ),
-                        topLeft = Offset(sqLeft, sqTop),
-                        size = Size(squircleSize, squircleSize),
-                        cornerRadius = sqCorner,
-                        style = Stroke(width = 1.8.dp.toPx())
-                    )
-
-                    // 4. Inner 3D Glossy #D9FF00 -> #007E08 Play Badge inside the Squircle
-                    val btnWidth = squircleSize * 0.68f
-                    val btnHeight = squircleSize * 0.48f
+                    // 3. 3D Glass YouTube Play Button Geometry
+                    val btnWidth = size.width * 0.54f
+                    val btnHeight = size.height * 0.38f
                     val btnLeft = center.x - btnWidth / 2f
                     val btnTop = center.y - btnHeight / 2f
-                    val cornerRadius = CornerRadius(btnHeight * 0.32f, btnHeight * 0.32f)
+                    val cornerRadius = CornerRadius(btnHeight * 0.30f, btnHeight * 0.30f)
 
-                    // 3D Bottom Extrusion Lip in deep #007E08
+                    // 3D Bottom Extrusion Shadow / Depth Lip
                     drawRoundRect(
-                        color = ZedBrandKellyGreen.copy(alpha = 0.85f),
-                        topLeft = Offset(btnLeft, btnTop + 4.dp.toPx()),
+                        color = Color(0xFF5A0000),
+                        topLeft = Offset(btnLeft, btnTop + 5.dp.toPx()),
                         size = Size(btnWidth, btnHeight),
                         cornerRadius = cornerRadius
                     )
 
+                    // Main 3D Glossy Red Body
                     val buttonPath = Path().apply {
                         addRoundRect(
                             RoundRect(
@@ -336,13 +249,12 @@ fun ZedCraftSplashLoadingScreen(
                         )
                     }
 
-                    // Main Gradient Body (#D9FF00 -> #7ED903 -> #007E08)
                     drawRoundRect(
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                ZedBrandVoltLime,
-                                ZedBrandMidGradient,
-                                ZedBrandKellyGreen
+                                Color(0xFFFF3838),
+                                YouTubeBrightRed,
+                                YouTubeDeepRed
                             ),
                             startY = btnTop,
                             endY = btnTop + btnHeight
@@ -352,15 +264,32 @@ fun ZedCraftSplashLoadingScreen(
                         cornerRadius = cornerRadius
                     )
 
-                    // Sweeping diagonal light shine across the badge
+                    // Clip inside the play button for top glass highlight & sweeping light shine
                     clipPath(buttonPath) {
+                        // Subtle top glass reflection highlight
+                        drawRoundRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.45f),
+                                    Color.White.copy(alpha = 0.08f),
+                                    Color.Transparent
+                                ),
+                                startY = btnTop,
+                                endY = btnTop + btnHeight * 0.52f
+                            ),
+                            topLeft = Offset(btnLeft + 2.dp.toPx(), btnTop + 1.5.dp.toPx()),
+                            size = Size(btnWidth - 4.dp.toPx(), btnHeight * 0.48f),
+                            cornerRadius = cornerRadius
+                        )
+
+                        // Sweeping diagonal light shine across the button every ~2s
                         val sweepCenterX = btnLeft + btnWidth * shineProgress
                         val sweepWidth = btnWidth * 0.38f
                         drawRect(
                             brush = Brush.linearGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    ZedTextPrimary.copy(alpha = 0.45f),
+                                    Color.White.copy(alpha = 0.38f),
                                     Color.Transparent
                                 ),
                                 start = Offset(sweepCenterX - sweepWidth, btnTop),
@@ -371,13 +300,41 @@ fun ZedCraftSplashLoadingScreen(
                         )
                     }
 
-                    // Center Crisp Play Triangle
+                    // Crisp glass specular rim border
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.65f),
+                                Color(0xFFFF6B6B).copy(alpha = 0.35f),
+                                Color(0xFF7A0000).copy(alpha = 0.6f)
+                            ),
+                            startY = btnTop,
+                            endY = btnTop + btnHeight
+                        ),
+                        topLeft = Offset(btnLeft, btnTop),
+                        size = Size(btnWidth, btnHeight),
+                        cornerRadius = cornerRadius,
+                        style = Stroke(width = 1.6.dp.toPx())
+                    )
+
+                    // 4. Center White Play Triangle (with subtle 3D drop shadow)
                     val triWidth = btnWidth * 0.27f
-                    val triHeight = btnHeight * 0.44f
-                    val triLeft = center.x - triWidth * 0.36f
+                    val triHeight = btnHeight * 0.42f
+                    val triLeft = center.x - triWidth * 0.38f
                     val triRight = triLeft + triWidth
                     val triTop = center.y - triHeight / 2f
                     val triBottom = center.y + triHeight / 2f
+
+                    val shadowTriangle = Path().apply {
+                        moveTo(triLeft, triTop + 2.dp.toPx())
+                        lineTo(triRight, center.y + 2.dp.toPx())
+                        lineTo(triLeft, triBottom + 2.dp.toPx())
+                        close()
+                    }
+                    drawPath(
+                        path = shadowTriangle,
+                        color = Color.Black.copy(alpha = 0.28f)
+                    )
 
                     val playTriangle = Path().apply {
                         moveTo(triLeft, triTop)
@@ -387,33 +344,21 @@ fun ZedCraftSplashLoadingScreen(
                     }
                     drawPath(
                         path = playTriangle,
-                        color = ZedOnPrimaryDark
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White,
+                                Color(0xFFF0F4FF)
+                            ),
+                            startY = triTop,
+                            endY = triBottom
+                        )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = "ZEDCraft",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.ExtraBold,
-                color = ZedTextPrimary
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "CREATE  •  OPTIMIZE  •  GROW",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp,
-                color = ZedBrandVoltLime
-            )
-
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Brand gradient circular spinner rotating smoothly underneath
+            // Small round rainbow gradient spinner rotating smoothly underneath
             Canvas(
                 modifier = Modifier
                     .size(32.dp)
@@ -424,10 +369,14 @@ fun ZedCraftSplashLoadingScreen(
                     drawArc(
                         brush = Brush.sweepGradient(
                             colors = listOf(
-                                ZedBrandKellyGreen.copy(alpha = 0.2f),
-                                ZedBrandKellyGreen,
-                                ZedBrandMidGradient,
-                                ZedBrandVoltLime
+                                Color(0xFFFF1744),
+                                Color(0xFFFF9100),
+                                Color(0xFFFFEA00),
+                                Color(0xFF00E676),
+                                Color(0xFF00E5FF),
+                                Color(0xFF2979FF),
+                                Color(0xFFD500F9),
+                                Color(0xFFFF1744)
                             )
                         ),
                         startAngle = 15f,
@@ -438,7 +387,7 @@ fun ZedCraftSplashLoadingScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             // Cycling status text below the spinner with smooth fade transition
             AnimatedContent(
@@ -452,7 +401,7 @@ fun ZedCraftSplashLoadingScreen(
                     text = statusText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
-                    color = ZedTextSecondary,
+                    color = Color(0xFFB8C7E0),
                     textAlign = TextAlign.Center
                 )
             }

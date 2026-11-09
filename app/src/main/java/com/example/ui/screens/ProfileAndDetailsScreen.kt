@@ -667,43 +667,24 @@ fun CreditsScreen(
                 Box(
                     modifier = Modifier
                         .size(96.dp)
-                        .clip(RoundedCornerShape(28.dp))
+                        .clip(RoundedCornerShape(26.dp))
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(
-                                    ZedCyanPrimary.copy(alpha = 0.25f),
-                                    ZedPurpleAccent.copy(alpha = 0.32f)
+                                    Color(0xFF00E5FF).copy(alpha = 0.25f),
+                                    Color(0xFF8B5CF6).copy(alpha = 0.25f)
                                 )
                             )
-                        )
-                        .border(
-                            width = 1.2.dp,
-                            color = ZedCyanPrimary.copy(alpha = 0.55f),
-                            shape = RoundedCornerShape(28.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Box(
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_zedcraft_logo),
+                        contentDescription = "ZEDCraft Logo",
                         modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        ZedCyanPrimary,
-                                        ZedPurpleAccent
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "ZEDCraft Logo",
-                            tint = ZedDarkBackground,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
+                            .size(84.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))

@@ -518,40 +518,13 @@ private fun FixedAppHeader(
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                 } else {
-                    // Sculpted 3D Squircle Brand Medallion (matching Image 1 & Image 2)
-                    Box(
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_zedcraft_logo),
+                        contentDescription = "ZEDCraft Logo",
                         modifier = Modifier
-                            .size(40.dp)
-                            .shadow(
-                                elevation = 8.dp,
-                                shape = RoundedCornerShape(13.dp),
-                                ambientColor = ZedCyanPrimary.copy(alpha = 0.45f),
-                                spotColor = ZedPurpleAccent.copy(alpha = 0.45f)
-                            )
-                            .clip(RoundedCornerShape(13.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        ZedCyanPrimary,
-                                        com.example.ui.theme.ZedBrandMidGradient,
-                                        com.example.ui.theme.ZedBrandKellyGreen
-                                    )
-                                )
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = Color.White.copy(alpha = 0.35f),
-                                shape = RoundedCornerShape(13.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "ZEDCraft Logo",
-                            tint = com.example.ui.theme.ZedOnPrimaryDark,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
                     Spacer(modifier = Modifier.width(10.dp))
                 }
 

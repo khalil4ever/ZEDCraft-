@@ -1,5 +1,11 @@
 # ZEDCraft Changelog
 
+## [1.3.7] - 2026-11-09
+### Protected Brand Assets Restored
+- **Original Splash & Loading Screen Restored**: Restored the exact original 3D glowing red YouTube-style play icon, breathing neon halo, floating sparkles, rainbow circular loading spinner, and rotating status messages (`"Optimizing YouTube..."`, `"Fetching data..."`, etc.) on the `#070B14` dark background.
+- **Original ZEDCraft Logo Restored**: Restored the exact original `ic_zedcraft_logo` design and colors in the top app header, onboarding screen, home hero card, and profile/credits screen.
+- **Original Home Screen Launcher Icon Restored**: Restored the exact original adaptive and round launcher icon (`ic_launcher_foreground.xml`, `ic_launcher_background.xml`, and `colors.xml`) while keeping the new UI redesign and `#007E08` / `#D9FF00` theme across the rest of the app.
+
 ## [1.3.6] - 2026-11-09
 ### Visual Redesign & Brand Color System
 - **New Brand Color Palette (`#007E08` & `#D9FF00`)**: Rebuilt the entire app's color system around Electric Volt Lime (`#D9FF00`), Deep Kelly Forest Green (`#007E08`), smooth lime-to-green gradients (`#D9FF00` ↔ `#7ED903` ↔ `#007E08`), and deep obsidian-forest dark surfaces (`#061107` / `#0F2612`) with high-contrast typography.
