@@ -151,6 +151,7 @@ data class ZedCraftUiState(
 
     // ZD Assistant State
     val isZdThinking: Boolean = false,
+    val streamingZdMessage: String? = null,
     val zdError: String? = null,
     val lastFailedZdPrompt: String? = null,
 
@@ -1290,6 +1291,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         _uiState.update {
             it.copy(
                 isZdThinking = true,
+                streamingZdMessage = null,
                 zdError = null,
                 lastFailedZdPrompt = null
             )
@@ -1309,7 +1311,12 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 val res = aiService.askZdAssistant(
                     userPrompt = trimmed,
                     channelContext = buildActiveChannelContextString(),
-                    chatHistory = historyPairs
+                    chatHistory = historyPairs,
+                    onStreamingUpdate = { partial ->
+                        _uiState.update { state ->
+                            state.copy(streamingZdMessage = partial)
+                        }
+                    }
                 )
 
                 res.onSuccess { reply ->
@@ -1323,6 +1330,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     _uiState.update {
                         it.copy(
                             isZdThinking = false,
+                            streamingZdMessage = null,
                             zdError = null,
                             lastFailedZdPrompt = null
                         )
@@ -1332,19 +1340,21 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     _uiState.update {
                         it.copy(
                             isZdThinking = false,
+                            streamingZdMessage = null,
                             zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
                             lastFailedZdPrompt = trimmed
                         )
                     }
                 }
             } catch (e: CancellationException) {
-                _uiState.update { it.copy(isZdThinking = false) }
+                _uiState.update { it.copy(isZdThinking = false, streamingZdMessage = null) }
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected exception in sendZdPrompt", e)
                 _uiState.update {
                     it.copy(
                         isZdThinking = false,
+                        streamingZdMessage = null,
                         zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
                         lastFailedZdPrompt = trimmed
                     )
@@ -1365,6 +1375,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         _uiState.update {
             it.copy(
                 isZdThinking = true,
+                streamingZdMessage = null,
                 zdError = null
             )
         }
@@ -1375,7 +1386,12 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 val res = aiService.askZdAssistant(
                     userPrompt = lastPrompt,
                     channelContext = buildActiveChannelContextString(),
-                    chatHistory = historyPairs
+                    chatHistory = historyPairs,
+                    onStreamingUpdate = { partial ->
+                        _uiState.update { state ->
+                            state.copy(streamingZdMessage = partial)
+                        }
+                    }
                 )
 
                 res.onSuccess { reply ->
@@ -1389,6 +1405,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     _uiState.update {
                         it.copy(
                             isZdThinking = false,
+                            streamingZdMessage = null,
                             zdError = null,
                             lastFailedZdPrompt = null
                         )
@@ -1398,19 +1415,21 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     _uiState.update {
                         it.copy(
                             isZdThinking = false,
+                            streamingZdMessage = null,
                             zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
                             lastFailedZdPrompt = lastPrompt
                         )
                     }
                 }
             } catch (e: CancellationException) {
-                _uiState.update { it.copy(isZdThinking = false) }
+                _uiState.update { it.copy(isZdThinking = false, streamingZdMessage = null) }
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected exception in retryLastZdPrompt", e)
                 _uiState.update {
                     it.copy(
                         isZdThinking = false,
+                        streamingZdMessage = null,
                         zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
                         lastFailedZdPrompt = lastPrompt
                     )
@@ -1425,6 +1444,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
             _uiState.update {
                 it.copy(
                     isZdThinking = false,
+                    streamingZdMessage = null,
                     zdError = null,
                     lastFailedZdPrompt = null
                 )

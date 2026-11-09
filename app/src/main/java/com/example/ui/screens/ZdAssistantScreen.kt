@@ -61,6 +61,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.local.ZdChatMessageEntity
+import com.example.ui.components.ZdMarkdownMessage
+import com.example.ui.components.stripMarkdownToCleanText
 import com.example.ui.theme.ZedAmberWarning
 import com.example.ui.theme.ZedCardBorder
 import com.example.ui.theme.ZedCyanPrimary
@@ -97,9 +99,12 @@ fun ZdAssistantScreen(
         )
     }
 
-    LaunchedEffect(chatMessages.size, uiState.isZdThinking, uiState.zdError) {
-        if (chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatMessages.size - 1)
+    LaunchedEffect(chatMessages.size, uiState.isZdThinking, uiState.streamingZdMessage, uiState.zdError) {
+        val totalItems = chatMessages.size +
+            (if (uiState.isZdThinking) 1 else 0) +
+            (if (!uiState.zdError.isNullOrBlank()) 1 else 0)
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
         }
     }
 
@@ -222,13 +227,23 @@ fun ZdAssistantScreen(
                 ZdChatBubble(
                     message = msg,
                     onCopy = {
-                        copyMessageToClipboard(context, msg.content)
+                        val cleanText = if (msg.role == "user") {
+                            msg.content
+                        } else {
+                            stripMarkdownToCleanText(msg.content)
+                        }
+                        copyMessageToClipboard(context, cleanText)
                     },
                     onSaveToVault = {
+                        val cleanBody = stripMarkdownToCleanText(msg.content)
+                        val cleanTitle = cleanBody.lineSequence()
+                            .firstOrNull { it.isNotBlank() }
+                            ?.take(60)
+                            ?: "ZD Strategy Note"
                         viewModel.saveIdeaToVault(
                             category = "ZD Coaching",
-                            title = msg.content.lineSequence().firstOrNull()?.take(60) ?: "ZD Strategy Note",
-                            content = msg.content
+                            title = cleanTitle,
+                            content = cleanBody
                         )
                         Toast.makeText(context, "Saved to Vault", Toast.LENGTH_SHORT).show()
                     }
@@ -236,28 +251,38 @@ fun ZdAssistantScreen(
             }
 
             if (uiState.isZdThinking) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(0.85f),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
-                        border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                item(key = "zd_streaming_or_thinking_item") {
+                    val streamingContent = uiState.streamingZdMessage
+                    if (!streamingContent.isNullOrBlank()) {
+                        ZdStreamingChatBubble(
+                            streamingMarkdown = streamingContent,
+                            onCopy = {
+                                copyMessageToClipboard(context, stripMarkdownToCleanText(streamingContent))
+                            }
+                        )
+                    } else {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(0.85f),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.5.dp,
-                                color = ZedCyanPrimary
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = "ZD is analyzing your channel & crafting strategy...",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = ZedTextSecondary
-                            )
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = ZedCyanPrimary
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "ZD is analyzing your channel & crafting strategy...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ZedTextSecondary
+                                )
+                            }
                         }
                     }
                 }
@@ -472,11 +497,82 @@ private fun ZdChatBubble(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = message.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White
+                Spacer(modifier = Modifier.height(8.dp))
+                if (isUser) {
+                    // User messages remain plain text
+                    Text(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
+                } else {
+                    // AI messages render full styled GFM Markdown
+                    ZdMarkdownMessage(
+                        markdown = message.content,
+                        isStreaming = false
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZdStreamingChatBubble(
+    streamingMarkdown: String,
+    onCopy: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(0.96f),
+            shape = RoundedCornerShape(
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = 4.dp,
+                bottomEnd = 18.dp
+            ),
+            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.45f))
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 2.dp,
+                            color = ZedCyanPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "ZD • Growth Coach",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ZedCyanPrimary
+                        )
+                    }
+                    IconButton(
+                        onClick = onCopy,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy Response",
+                            tint = ZedTextSecondary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                ZdMarkdownMessage(
+                    markdown = streamingMarkdown,
+                    isStreaming = true
                 )
             }
         }

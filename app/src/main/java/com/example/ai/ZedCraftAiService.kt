@@ -1174,10 +1174,90 @@ class ZedCraftAiService {
         raw.text
     }
 
+    private suspend fun streamDirectGoogleAiStudioApi(
+        systemInstructionText: String,
+        promptText: String,
+        onStreamingUpdate: (String) -> Unit
+    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val apiKey = getDirectGeminiApiKey() ?: return@withContext null
+        val modelsToTry = listOf("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash")
+
+        for (model in modelsToTry) {
+            try {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$apiKey"
+
+                val contentsArr = JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("parts", JSONArray().put(JSONObject().put("text", promptText)))
+                )
+
+                val payload = JSONObject().apply {
+                    put("contents", contentsArr)
+                    if (systemInstructionText.isNotBlank()) {
+                        put(
+                            "systemInstruction",
+                            JSONObject().put(
+                                "parts",
+                                JSONArray().put(JSONObject().put("text", systemInstructionText))
+                            )
+                        )
+                    }
+                }
+
+                val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .post(body)
+                    .build()
+
+                val accumulated = StringBuilder()
+                directHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Direct SSE stream $model returned HTTP ${response.code}")
+                        return@use
+                    }
+                    val reader = response.body?.charStream()?.buffered() ?: return@use
+                    reader.forEachLine { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.startsWith("data:")) {
+                            val jsonStr = trimmed.removePrefix("data:").trim()
+                            if (jsonStr.isNotEmpty() && jsonStr != "[DONE]") {
+                                runCatching {
+                                    val root = JSONObject(jsonStr)
+                                    val chunkText = root.optJSONArray("candidates")
+                                        ?.optJSONObject(0)
+                                        ?.optJSONObject("content")
+                                        ?.optJSONArray("parts")
+                                        ?.optJSONObject(0)
+                                        ?.optString("text")
+                                        .orEmpty()
+                                    if (chunkText.isNotEmpty()) {
+                                        accumulated.append(chunkText)
+                                        onStreamingUpdate(accumulated.toString())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val finalResult = accumulated.toString().trim()
+                if (finalResult.isNotBlank()) {
+                    return@withContext finalResult
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Exception streaming direct model $model: ${e.message}")
+            }
+        }
+        null
+    }
+
     suspend fun askZdAssistant(
         userPrompt: String,
         channelContext: String,
-        chatHistory: List<Pair<String, String>>
+        chatHistory: List<Pair<String, String>>,
+        onStreamingUpdate: ((String) -> Unit)? = null
     ): Result<String> = runCatching {
         val systemText = buildString {
             appendLine(ZedCraftAiConfig.ZD_SYSTEM_INSTRUCTION)
@@ -1196,11 +1276,23 @@ class ZedCraftAiService {
             appendLine("User Request: $userPrompt")
         }
 
+        if (onStreamingUpdate != null) {
+            val streamed = streamDirectGoogleAiStudioApi(
+                systemInstructionText = systemText,
+                promptText = conversationText,
+                onStreamingUpdate = onStreamingUpdate
+            )
+            if (!streamed.isNullOrBlank()) {
+                return@runCatching streamed
+            }
+        }
+
         val raw = executeMainModelWithFallback(
             systemInstructionText = systemText,
             responseSchema = null,
             promptContent = content { text(conversationText) }
         )
+        onStreamingUpdate?.invoke(raw.text)
         raw.text
     }
 

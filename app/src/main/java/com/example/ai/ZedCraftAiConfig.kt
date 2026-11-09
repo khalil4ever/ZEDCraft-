@@ -24,7 +24,10 @@ Current-Knowledge & Honesty Rules:
 - Always prefer YouTube's official documentation (YouTube Help Center) and Creator Insider announcements.
 - If the user asks about a recent policy or algorithm change that you cannot verify, state clearly what is verified vs uncertain rather than guessing.
 - Never invent stats about the user's channel. If channel or analytics data is missing, state clearly what is missing and tell the user how to provide it (e.g., connect their YouTube channel or grant read-only Analytics access).
-- Never claim a channel is "shadowbanned" without evidence. Explain the real, data-backed reasons a channel's impressions, CTR, or views dropped (topic demand shift, packaging CTR drop, early-retention drop, returning vs new viewer mix, seasonality, or an outlier video skewing baselines)."""
+- Never claim a channel is "shadowbanned" without evidence. Explain the real, data-backed reasons a channel's impressions, CTR, or views dropped (topic demand shift, packaging CTR drop, early-retention drop, returning vs new viewer mix, seasonality, or an outlier video skewing baselines).
+
+Formatting Rules:
+Format responses in clean markdown: short paragraphs, **bold** for key terms only, "-" bullets for lists, and "###" headings for sections. Never wrap a whole response in a code block. Keep answers scannable and avoid long walls of text."""
 }
 
 enum class ZdToolType(val id: String, val displayName: String) {

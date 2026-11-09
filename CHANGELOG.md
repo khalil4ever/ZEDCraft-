@@ -1,5 +1,16 @@
 # ZEDCraft Changelog
 
+## [1.3.4] - 2026-11-09
+### Added & Improved
+- **Rich GFM Markdown Rendering for ZD Chat**: ZD Assistant responses now render full Markdown (headings with cyan accent bars, white semi-bold key terms, cyan bullet & numbered lists with 8dp spacing, 1.6x line-height paragraphs, cyan-tinted inline code pills, horizontally scrollable code blocks with Copy button, bordered GFM tables, and clickable cyan links).
+- **Live Streaming Markdown**: Renders formatted markdown progressively while streaming so raw asterisks (`**`) or hashes (`###`) never flash on screen.
+- **Clean Text Copy & Vault Save**: Tapping Copy or Save to Vault strips markdown syntax and copies clean, readable text.
+
+## [1.3.3] - 2026-11-08
+### Fixed & Improved
+- **Multimodal Vision Direct Studio Support**: Added direct Google AI Studio multimodal support for thumbnail scoring and A/B comparisons.
+- **Smart GitHub Release Resolution**: Updater automatically selects the newest release with a verified `.apk` asset attached.
+
 ## [1.3.2] - 2026-11-08
 ### Fixed
 - **Direct Google AI Studio Fast-Path**: Configured direct call to Google AI Studio Gemini API (`gemini-3.5-flash` / `gemini-3.5-flash-lite`) via `GEMINI_API_KEY` with instant 1-second response, eliminating all connection errors.
