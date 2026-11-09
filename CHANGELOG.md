@@ -1,5 +1,11 @@
 # ZEDCraft Changelog
 
+## [1.3.5] - 2026-11-09
+### Added & Improved
+- **Automatic Glowing Update Pop-Up**: Silently checks for newer ZEDCraft versions on app launch and foreground resume when online. Features a dark glassmorphism modal with a pulsing cyan/purple glow, smooth in-card download progress bar (`%` and `MB`), connection-lost resume support, storage & APK verification, and automatic package installer handoff.
+- **VidIQ-Style Smart Suggestions (Live YouTube Data + AI)**: Scoring a Title, Description, or Tags/Hashtags now pulls real top-ranking YouTube videos for your topic and builds 10 scored Title options (with `Best for Search`, `Best for Clicks`, `Balanced` badges, mobile/search previews, and cutoff warnings), 3 Description variations, and 3 best Hashtags + 500-char Smart Tags showing how common each tag is across top results.
+- **Everywhere Integration**: Smart Suggestions are now integrated across Title Optimizer, Description Optimizer, Tags & Hashtags, Video Deep Analyzer & SEO Audit, and ZD Assistant.
+
 ## [1.3.4] - 2026-11-09
 ### Added & Improved
 - **Rich GFM Markdown Rendering for ZD Chat**: ZD Assistant responses now render full Markdown (headings with cyan accent bars, white semi-bold key terms, cyan bullet & numbered lists with 8dp spacing, 1.6x line-height paragraphs, cyan-tinted inline code pills, horizontally scrollable code blocks with Copy button, bordered GFM tables, and clickable cyan links).

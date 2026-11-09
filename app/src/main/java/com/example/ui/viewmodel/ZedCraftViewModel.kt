@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
+import com.example.ai.SmartTagItem
 import com.example.ai.ThumbnailVisionResponse
 import com.example.ai.TitleOptimizerResponse
 import com.example.ai.TitleSuggestionItem
@@ -117,6 +118,8 @@ data class ZedCraftUiState(
     val videoAuditError: String? = null,
     val videoAiCoachingSummary: String? = null,
     val isGeneratingVideoCoaching: Boolean = false,
+    val inspectedVideoSmartSuggestions: TitleOptimizerResponse? = null,
+    val isLoadingVideoSmartSuggestions: Boolean = false,
 
     // Optimize Tab State
     val optimizeTopicInput: String = "",
@@ -125,6 +128,7 @@ data class ZedCraftUiState(
     val optimizeDescInput: String = "",
     val optimizeTagsInput: String = "",
     val titleOptimizerResult: TitleOptimizerResponse? = null,
+    val selectedDescriptionVariationIndex: Int = 0,
     val selectedThumbnailBitmap: Bitmap? = null,
     val secondThumbnailBitmap: Bitmap? = null,
     val thumbnailVisionResult: ThumbnailVisionResponse? = null,
@@ -161,12 +165,13 @@ data class ZedCraftUiState(
     val calcShortsViews: Long = 250_000L,
     val calcAvgViewsPerVideo: Long = 25_000L,
 
-    // GitHub Auto-Update State
+    // Auto-Update State
     val githubRepoPath: String = GitHubUpdateClient.DEFAULT_GITHUB_REPO,
     val isCheckingUpdate: Boolean = false,
     val githubReleaseInfo: GitHubReleaseInfo? = null,
     val updateCheckError: String? = null,
     val showAutoUpdateDialog: Boolean = false,
+    val dismissedUpdateVersionThisSession: String? = null,
     val isDownloadingUpdate: Boolean = false,
     val downloadProgressPercent: Int = 0,
     val downloadedMb: Float = 0f,
@@ -186,6 +191,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
 
     private var activeDownloadJob: Job? = null
     private var networkCallbackRegistered = false
+    private var hasCheckedUpdateThisOpen = false
 
     private val _uiState = MutableStateFlow(
         ZedCraftUiState(
@@ -234,8 +240,8 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 connectWithOAuthToken(refreshedToken)
             }
 
-            // Trigger silent GitHub auto-update check on launch
-            checkForGitHubUpdates(isSilent = true)
+            // Trigger silent auto-update check on launch in background without blocking startup
+            onAppForegrounded(isInitialOpen = true)
 
             // Ensure the custom 3D splash screen stays visible for at least 2.3s for a smooth entrance
             val elapsedMs = System.currentTimeMillis() - startTimeMs
@@ -245,6 +251,20 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
             }
 
             _uiState.update { it.copy(isAppReadyForContent = true) }
+        }
+    }
+
+    /**
+     * Silently checks for a newer version in the background when the app opens or returns to the foreground,
+     * only when the device is online. Checks at most once per app open unless returning after the interval.
+     */
+    fun onAppForegrounded(isInitialOpen: Boolean = false) {
+        if (!gitHubUpdateClient.isDeviceOnline()) return
+        if (isInitialOpen || !hasCheckedUpdateThisOpen) {
+            hasCheckedUpdateThisOpen = true
+            checkForGitHubUpdates(isSilent = true, bypassInterval = true)
+        } else if (gitHubUpdateClient.shouldRunSilentCheck()) {
+            checkForGitHubUpdates(isSilent = true, bypassInterval = false)
         }
     }
 
@@ -260,8 +280,9 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
                         super.onAvailable(network)
-                        if (gitHubUpdateClient.shouldRunSilentCheck()) {
-                            checkForGitHubUpdates(isSilent = true)
+                        if (!hasCheckedUpdateThisOpen || gitHubUpdateClient.shouldRunSilentCheck()) {
+                            hasCheckedUpdateThisOpen = true
+                            checkForGitHubUpdates(isSilent = true, bypassInterval = true)
                         }
                     }
                 }
@@ -523,7 +544,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Scores a custom user-typed title out of 100 (clarity, curiosity, keywords, length, click appeal).
+     * Scores a custom user-typed title out of 100 and also generates Smart Suggestions based on real YouTube search data.
      */
     fun scoreCustomTitleDraft() {
         val draft = _uiState.value.customTitleDraft.trim()
@@ -536,10 +557,15 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
             val channelCtx = _uiState.value.activeChannel?.let {
                 "Channel: ${it.title} (${it.handle}), Subscribers: ${it.subscriberCount}"
             } ?: "Niche: ${_uiState.value.optimizeNicheInput}"
+            val searchPatterns = youTubeApi.fetchTopicSearchPatterns(
+                topicOrTitleOrUrl = draft,
+                oauthAccessToken = _uiState.value.oauthAccessToken
+            )
             val result = aiService.scoreSingleCustomTitle(
                 customTitle = draft,
                 niche = _uiState.value.optimizeNicheInput,
-                channelContext = channelCtx
+                channelContext = channelCtx,
+                searchPatterns = searchPatterns
             )
             result.onSuccess { scored ->
                 _uiState.update {
@@ -547,6 +573,19 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                         isScoringCustomTitle = false,
                         customTitleScoreResult = scored
                     )
+                }
+                // Also build full 10-title, description & tag smart suggestions if not already present for this draft
+                val stateNow = _uiState.value
+                val fullRes = aiService.generateOptimizedTitlesAndMetadata(
+                    topicOrDraftTitle = draft,
+                    niche = stateNow.optimizeNicheInput,
+                    currentDescription = stateNow.optimizeDescInput,
+                    currentTags = stateNow.optimizeTagsInput.split(",").map { t -> t.trim() }.filter { t -> t.isNotBlank() },
+                    channelContext = buildActiveChannelContextString(),
+                    searchPatterns = searchPatterns
+                ).getOrNull()
+                if (fullRes != null) {
+                    _uiState.update { it.copy(titleOptimizerResult = fullRes) }
                 }
             }.onFailure {
                 _uiState.update {
@@ -879,16 +918,67 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                         inspectedVideoAudit = audit,
                         inspectedVideoComments = comments,
                         isLoadingVideoAudit = false,
-                        videoAuditError = null
+                        videoAuditError = null,
+                        inspectedVideoSmartSuggestions = null,
+                        isLoadingVideoSmartSuggestions = true
                     )
+                }
+
+                // Automatically build VidIQ-style Smart Suggestions right under the SEO Audit score
+                launch {
+                    val patterns = youTubeApi.fetchTopicSearchPatterns(
+                        topicOrTitleOrUrl = video.title,
+                        oauthAccessToken = token
+                    )
+                    val smartRes = aiService.generateOptimizedTitlesAndMetadata(
+                        topicOrDraftTitle = video.title,
+                        niche = _uiState.value.optimizeNicheInput,
+                        currentDescription = video.description,
+                        currentTags = video.tags,
+                        channelContext = buildActiveChannelContextString(),
+                        searchPatterns = patterns
+                    ).getOrNull()
+                    _uiState.update {
+                        it.copy(
+                            inspectedVideoSmartSuggestions = smartRes,
+                            isLoadingVideoSmartSuggestions = false
+                        )
+                    }
                 }
             }.onFailure { err ->
                 _uiState.update {
                     it.copy(
                         isLoadingVideoAudit = false,
+                        isLoadingVideoSmartSuggestions = false,
                         videoAuditError = err.localizedMessage ?: "Failed to analyze video."
                     )
                 }
+            }
+        }
+    }
+
+    fun regenerateInspectedVideoSmartSuggestions() {
+        val video = _uiState.value.inspectedVideoAudit?.video ?: return
+        _uiState.update { it.copy(isLoadingVideoSmartSuggestions = true) }
+        viewModelScope.launch {
+            val patterns = youTubeApi.fetchTopicSearchPatterns(
+                topicOrTitleOrUrl = video.title,
+                oauthAccessToken = _uiState.value.oauthAccessToken,
+                forceRefresh = false
+            )
+            val smartRes = aiService.generateOptimizedTitlesAndMetadata(
+                topicOrDraftTitle = video.title,
+                niche = _uiState.value.optimizeNicheInput,
+                currentDescription = video.description,
+                currentTags = video.tags,
+                channelContext = buildActiveChannelContextString(),
+                searchPatterns = patterns
+            ).getOrNull()
+            _uiState.update {
+                it.copy(
+                    inspectedVideoSmartSuggestions = smartRes,
+                    isLoadingVideoSmartSuggestions = false
+                )
             }
         }
     }
@@ -960,7 +1050,109 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun runTitleDescTagsOptimizer() {
+    fun selectDescriptionVariation(index: Int) {
+        _uiState.update { state ->
+            val variations = state.titleOptimizerResult?.descriptionVariations.orEmpty()
+            val chosen = variations.getOrNull(index)
+            state.copy(
+                selectedDescriptionVariationIndex = index.coerceAtLeast(0),
+                titleOptimizerResult = if (chosen != null && state.titleOptimizerResult != null) {
+                    state.titleOptimizerResult.copy(
+                        optimizedDescription = chosen.fullDescription,
+                        hashtags = chosen.threeHashtags.ifEmpty { state.titleOptimizerResult.hashtags }
+                    )
+                } else {
+                    state.titleOptimizerResult
+                }
+            )
+        }
+    }
+
+    /**
+     * Puts a suggested title directly into the Title Optimizer editor (and custom draft input).
+     */
+    fun useSuggestedTitle(newTitle: String) {
+        _uiState.update {
+            it.copy(
+                optimizeTitleInput = newTitle,
+                optimizeTopicInput = if (it.optimizeTopicInput.isBlank()) newTitle else it.optimizeTopicInput,
+                customTitleDraft = newTitle
+            )
+        }
+    }
+
+    /**
+     * Puts a suggested description variation directly into the Description Optimizer editor.
+     */
+    fun useSuggestedDescription(newDescription: String) {
+        _uiState.update {
+            it.copy(optimizeDescInput = newDescription)
+        }
+    }
+
+    /**
+     * Adds a tag to the active recommended tag list and editor input (enforcing YouTube's 500-char limit).
+     */
+    fun addSmartTagToList(tagToAdd: String) {
+        val clean = tagToAdd.trim().removePrefix("#")
+        if (clean.isBlank()) return
+        _uiState.update { state ->
+            val currentRes = state.titleOptimizerResult
+            val existingList = currentRes?.recommendedTags
+                ?: state.optimizeTagsInput.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            if (existingList.any { it.equals(clean, ignoreCase = true) }) {
+                return@update state
+            }
+            val updatedTags = existingList + clean
+            val totalChars = updatedTags.joinToString(", ").length
+            if (totalChars > 500) {
+                return@update state.copy(optimizeError = "Cannot add '$clean' — exceeds YouTube's 500-character tag limit.")
+            }
+            val updatedSmartItems = if (currentRes != null) {
+                val alreadyInSmart = currentRes.smartTagSuggestions.any { it.tag.equals(clean, ignoreCase = true) }
+                if (alreadyInSmart) {
+                    currentRes.smartTagSuggestions
+                } else {
+                    currentRes.smartTagSuggestions + SmartTagItem(
+                        tag = clean,
+                        usedInTopVideosCount = 0,
+                        totalTopVideosAnalyzed = 0,
+                        commonalityLabel = "Added by you",
+                        isFromLiveYouTubeData = false
+                    )
+                }
+            } else emptyList()
+
+            state.copy(
+                optimizeTagsInput = updatedTags.joinToString(", "),
+                optimizeError = null,
+                titleOptimizerResult = currentRes?.copy(
+                    recommendedTags = updatedTags,
+                    smartTagSuggestions = updatedSmartItems
+                )
+            )
+        }
+    }
+
+    /**
+     * Removes a tag from the active recommended tag list and updates the editor input.
+     */
+    fun removeSmartTagFromList(tagToRemove: String) {
+        _uiState.update { state ->
+            val currentRes = state.titleOptimizerResult
+            val existingList = currentRes?.recommendedTags
+                ?: state.optimizeTagsInput.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            val updatedTags = existingList.filterNot { it.equals(tagToRemove, ignoreCase = true) }
+            state.copy(
+                optimizeTagsInput = updatedTags.joinToString(", "),
+                titleOptimizerResult = currentRes?.copy(
+                    recommendedTags = updatedTags
+                )
+            )
+        }
+    }
+
+    fun runTitleDescTagsOptimizer(forceRefreshSearch: Boolean = false) {
         val state = _uiState.value
         val targetVideo = state.selectedTargetVideo
         val effectiveTopic = state.optimizeTopicInput.ifBlank {
@@ -981,19 +1173,27 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 optimizeTopicInput = effectiveTopic,
                 optimizeTitleInput = effectiveTitle,
                 optimizeDescInput = effectiveDesc,
-                optimizeTagsInput = effectiveTags
+                optimizeTagsInput = effectiveTags,
+                selectedDescriptionVariationIndex = 0
             )
         }
         viewModelScope.launch {
+            val seedQuery = effectiveTitle.ifBlank { effectiveTopic }
+            val searchPatterns = youTubeApi.fetchTopicSearchPatterns(
+                topicOrTitleOrUrl = seedQuery,
+                oauthAccessToken = state.oauthAccessToken,
+                forceRefresh = forceRefreshSearch
+            )
             val result = aiService.generateOptimizedTitlesAndMetadata(
-                topicOrDraftTitle = effectiveTitle.ifBlank { effectiveTopic },
+                topicOrDraftTitle = seedQuery,
                 niche = state.optimizeNicheInput,
                 currentDescription = effectiveDesc,
                 currentTags = effectiveTags
                     .split(",")
                     .map { it.trim() }
                     .filter { it.isNotBlank() },
-                channelContext = buildActiveChannelContextString()
+                channelContext = buildActiveChannelContextString(),
+                searchPatterns = searchPatterns
             )
             result.onSuccess { res ->
                 _uiState.update {
@@ -1308,9 +1508,39 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 )
 
                 val historyPairs = zdChatHistory.value.map { it.role to it.content }
+                val lowerPrompt = trimmed.lowercase()
+                val shouldFetchSearchPatterns = lowerPrompt.contains("title") ||
+                    lowerPrompt.contains("description") ||
+                    lowerPrompt.contains("tag") ||
+                    lowerPrompt.contains("hashtag") ||
+                    lowerPrompt.contains("score") ||
+                    lowerPrompt.contains("suggest") ||
+                    lowerPrompt.contains("seo") ||
+                    lowerPrompt.contains("keyword")
+
+                val enrichedContext = if (shouldFetchSearchPatterns) {
+                    val topicSeed = _uiState.value.selectedTargetVideo?.title
+                        ?: _uiState.value.optimizeTitleInput.ifBlank { trimmed.take(70) }
+                    val patterns = youTubeApi.fetchTopicSearchPatterns(
+                        topicOrTitleOrUrl = topicSeed,
+                        oauthAccessToken = _uiState.value.oauthAccessToken
+                    )
+                    buildString {
+                        appendLine(buildActiveChannelContextString())
+                        appendLine()
+                        appendLine("=== SMART SUGGESTIONS SEARCH DATA (${patterns.dataSourceLabel}) ===")
+                        patterns.patternSummaryBullets.forEach { appendLine("- $it") }
+                        if (patterns.tagFrequencies.isNotEmpty()) {
+                            appendLine("Top Competitor Tags: ${patterns.tagFrequencies.take(10).joinToString(", ") { "${it.tag} (${it.commonalityLabel})" }}")
+                        }
+                    }
+                } else {
+                    buildActiveChannelContextString()
+                }
+
                 val res = aiService.askZdAssistant(
                     userPrompt = trimmed,
-                    channelContext = buildActiveChannelContextString(),
+                    channelContext = enrichedContext,
                     chatHistory = historyPairs,
                     onStreamingUpdate = { partial ->
                         _uiState.update { state ->
@@ -1514,10 +1744,11 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // --- GitHub In-App Auto-Update Actions ---
-    fun checkForGitHubUpdates(isSilent: Boolean = false) {
+    // --- In-App Auto-Update Actions ---
+    fun checkForGitHubUpdates(isSilent: Boolean = false, bypassInterval: Boolean = false) {
         if (_uiState.value.isCheckingUpdate) return
-        if (isSilent && !gitHubUpdateClient.shouldRunSilentCheck()) return
+        if (isSilent && !gitHubUpdateClient.isDeviceOnline()) return
+        if (isSilent && !bypassInterval && !gitHubUpdateClient.shouldRunSilentCheck()) return
 
         _uiState.update {
             it.copy(
@@ -1532,16 +1763,23 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 isSilent = isSilent
             )
             res.onSuccess { info ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    val wasDismissedForThisVersion = state.dismissedUpdateVersionThisSession != null &&
+                        GitHubUpdateClient.compareVersions(info.latestTag, state.dismissedUpdateVersionThisSession) <= 0
+                    val shouldPopUp = if (isSilent) {
+                        info.isUpdateAvailable && !wasDismissedForThisVersion
+                    } else {
+                        info.isUpdateAvailable
+                    }
+                    state.copy(
                         isCheckingUpdate = false,
                         githubReleaseInfo = info,
                         updateCheckError = null,
-                        showAutoUpdateDialog = if (info.isUpdateAvailable) true else it.showAutoUpdateDialog
+                        showAutoUpdateDialog = if (shouldPopUp) true else state.showAutoUpdateDialog
                     )
                 }
-            }.onFailure { err ->
-                // If silent check fails or there is no internet, stay completely silent and never crash
+            }.onFailure {
+                // If silent check fails or there is no internet, stay completely silent and never show an error
                 if (isSilent) {
                     _uiState.update { it.copy(isCheckingUpdate = false) }
                 } else {
@@ -1556,12 +1794,25 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Called when the user taps "Update Later". Closes the pop-up and remembers the dismissed
+     * version for this app open unless an even newer version appears.
+     */
     fun dismissAutoUpdateDialog() {
-        _uiState.update { it.copy(showAutoUpdateDialog = false) }
+        activeDownloadJob?.cancel()
+        activeDownloadJob = null
+        _uiState.update { state ->
+            state.copy(
+                showAutoUpdateDialog = false,
+                isDownloadingUpdate = false,
+                updateDownloadError = null,
+                dismissedUpdateVersionThisSession = state.githubReleaseInfo?.latestTag ?: state.dismissedUpdateVersionThisSession
+            )
+        }
     }
 
     /**
-     * Downloads the release `.apk` inside the app (never opening GitHub or the browser),
+     * Downloads the update `.apk` inside the same pop-up card (never redirecting to a browser),
      * updating progress percentage, downloaded MB, and total MB in real time.
      */
     fun startInAppUpdateDownload() {
@@ -1570,8 +1821,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         if (apkUrl.isNullOrBlank()) {
             _uiState.update {
                 it.copy(
-                    showAutoUpdateDialog = false,
-                    updateDownloadError = "Release ${release.latestTag} does not have an .apk asset attached yet."
+                    updateDownloadError = "Update package for version ${release.cleanVersionNumber} is not available yet. Please try again shortly."
                 )
             }
             return
@@ -1580,11 +1830,11 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         activeDownloadJob?.cancel()
         _uiState.update {
             it.copy(
-                showAutoUpdateDialog = false,
+                showAutoUpdateDialog = true,
                 isDownloadingUpdate = true,
-                downloadProgressPercent = 0,
-                downloadedMb = 0f,
-                totalMb = if (release.apkSizeBytes > 0) release.apkSizeBytes.toFloat() / (1024f * 1024f) else 0f,
+                downloadProgressPercent = if (it.updateDownloadError != null) it.downloadProgressPercent else 0,
+                downloadedMb = if (it.updateDownloadError != null) it.downloadedMb else 0f,
+                totalMb = if (release.apkSizeBytes > 0) release.apkSizeBytes.toFloat() / (1024f * 1024f) else it.totalMb,
                 updateDownloadError = null,
                 downloadedApkFile = null
             )
@@ -1594,6 +1844,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
             val result = gitHubUpdateClient.downloadUpdateApk(
                 apkUrl = apkUrl,
                 versionTag = release.latestTag,
+                expectedSizeBytes = release.apkSizeBytes,
                 onProgress = { progress: ApkDownloadProgress ->
                     _uiState.update { state ->
                         state.copy(
@@ -1626,7 +1877,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     _uiState.update {
                         it.copy(
                             isDownloadingUpdate = false,
-                            updateDownloadError = err.localizedMessage ?: "Download failed. Please tap Retry."
+                            updateDownloadError = err.localizedMessage ?: "Connection lost. Tap Retry to resume."
                         )
                     }
                 }
@@ -1640,7 +1891,9 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         _uiState.update {
             it.copy(
                 isDownloadingUpdate = false,
-                updateDownloadError = null
+                updateDownloadError = null,
+                showAutoUpdateDialog = false,
+                dismissedUpdateVersionThisSession = it.githubReleaseInfo?.latestTag ?: it.dismissedUpdateVersionThisSession
             )
         }
     }
@@ -1663,7 +1916,8 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
             it.copy(
                 downloadedApkFile = null,
                 pendingInstallAfterPermission = false,
-                showUnknownSourcesDialog = false
+                showUnknownSourcesDialog = false,
+                showAutoUpdateDialog = false
             )
         }
     }

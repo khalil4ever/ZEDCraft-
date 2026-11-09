@@ -2,14 +2,19 @@ package com.example.data.remote
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.StatFs
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.example.BuildConfig
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
@@ -34,7 +39,10 @@ data class GitHubReleaseInfo(
     val isUpdateAvailable: Boolean,
     val currentVersion: String,
     val recentCommitsSummary: List<String> = emptyList()
-)
+) {
+    val cleanVersionNumber: String
+        get() = latestTag.trim().removePrefix("v").removePrefix("V").ifBlank { currentVersion }
+}
 
 data class ApkDownloadProgress(
     val percent: Int,
@@ -59,8 +67,20 @@ class GitHubUpdateClient(
     }
 
     /**
-     * Checks if enough time has elapsed since the last silent background update check
-     * (throttled to once every 3 hours so we never spam GitHub API).
+     * Checks whether the device currently has an active internet connection.
+     */
+    fun isDeviceOnline(): Boolean {
+        val ctx = context ?: return true
+        return runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java) ?: return@runCatching false
+            val activeNetwork = cm.activeNetwork ?: return@runCatching false
+            val caps = cm.getNetworkCapabilities(activeNetwork) ?: return@runCatching false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Checks if enough time has elapsed since the last silent background update check.
      */
     fun shouldRunSilentCheck(): Boolean {
         val p = prefs ?: return true
@@ -90,9 +110,13 @@ class GitHubUpdateClient(
                 if (dir.exists() && dir.isDirectory) {
                     dir.listFiles()?.forEach { file ->
                         if (file.extension.equals("apk", ignoreCase = true)) {
-                            // Delete if it matches current or older version, or is older than 24h
                             val ageMs = System.currentTimeMillis() - file.lastModified()
                             if (file.name.contains(currentVer) || ageMs > 24 * 60 * 60 * 1000L) {
+                                file.delete()
+                            }
+                        } else if (file.name.endsWith(".part", ignoreCase = true)) {
+                            val ageMs = System.currentTimeMillis() - file.lastModified()
+                            if (ageMs > 12 * 60 * 60 * 1000L) {
                                 file.delete()
                             }
                         }
@@ -102,15 +126,15 @@ class GitHubUpdateClient(
         }
     }
 
-    private fun getGitHubToken(): String? {
+    private fun getAuthToken(): String? {
         val token = runCatching { BuildConfig.GITHUB_TOKEN.trim() }.getOrNull()
         return if (!token.isNullOrBlank() && !token.startsWith("YOUR_") && token != "null") token else null
     }
 
-    private fun addGitHubHeaders(builder: Request.Builder): Request.Builder {
+    private fun addUpdateHeaders(builder: Request.Builder): Request.Builder {
         builder.header("Accept", "application/vnd.github+json")
         builder.header("User-Agent", "ZEDCraft-Android/${BuildConfig.VERSION_NAME}")
-        val token = getGitHubToken()
+        val token = getAuthToken()
         if (!token.isNullOrBlank()) {
             builder.header("Authorization", "Bearer $token")
         }
@@ -118,15 +142,17 @@ class GitHubUpdateClient(
     }
 
     /**
-     * Checks `https://api.github.com/repos/khalil4ever/ZEDCraft-/releases/latest` first,
-     * reading `tag_name`, `body`, and `.apk` asset `browser_download_url`.
-     * Compares `tag_name` against `BuildConfig.VERSION_NAME` using semantic version comparison.
+     * Checks the update source for a newer version of ZEDCraft using semantic version comparison.
      */
     suspend fun checkForUpdates(
         repoInput: String = DEFAULT_GITHUB_REPO,
         isSilent: Boolean = false
     ): Result<GitHubReleaseInfo> = withContext(Dispatchers.IO) {
         runCatching {
+            if (!isDeviceOnline()) {
+                throw IOException("No internet connection.")
+            }
+
             val cleanedRepo = normalizeRepoPath(repoInput)
             val currentVersion = BuildConfig.VERSION_NAME
 
@@ -136,7 +162,7 @@ class GitHubUpdateClient(
 
             // 1. Primary endpoint: /releases/latest
             val latestReleaseUrl = "https://api.github.com/repos/$cleanedRepo/releases/latest"
-            val latestReq = addGitHubHeaders(Request.Builder().url(latestReleaseUrl)).build()
+            val latestReq = addUpdateHeaders(Request.Builder().url(latestReleaseUrl)).build()
 
             var latestReleaseInfoWithoutApk: GitHubReleaseInfo? = null
 
@@ -155,9 +181,9 @@ class GitHubUpdateClient(
                 }
             }
 
-            // 2. Fallback: /releases list (find newest non-draft release that has an APK asset attached)
+            // 2. Fallback: /releases list (find newest non-draft update that has an APK asset attached)
             val releasesUrl = "https://api.github.com/repos/$cleanedRepo/releases?per_page=10"
-            val releasesReq = addGitHubHeaders(Request.Builder().url(releasesUrl)).build()
+            val releasesReq = addUpdateHeaders(Request.Builder().url(releasesUrl)).build()
 
             httpClient.newCall(releasesReq).execute().use { response ->
                 val body = response.body?.string().orEmpty()
@@ -175,14 +201,13 @@ class GitHubUpdateClient(
                 }
             }
 
-            // If we found a latest release without an APK asset, still return it rather than tags
             if (latestReleaseInfoWithoutApk != null) {
                 return@runCatching latestReleaseInfoWithoutApk!!
             }
 
             // 3. Fallback: tags list
             val tagsUrl = "https://api.github.com/repos/$cleanedRepo/tags?per_page=5"
-            val tagsReq = addGitHubHeaders(Request.Builder().url(tagsUrl)).build()
+            val tagsReq = addUpdateHeaders(Request.Builder().url(tagsUrl)).build()
 
             var latestTagFromTags: String? = null
             httpClient.newCall(tagsReq).execute().use { response ->
@@ -201,10 +226,10 @@ class GitHubUpdateClient(
             GitHubReleaseInfo(
                 repository = cleanedRepo,
                 latestTag = tag,
-                releaseTitle = "ZEDCraft $tag",
+                releaseTitle = "ZEDCraft ${tag.removePrefix("v").removePrefix("V")}",
                 releaseNotes = "You are running the latest version of ZEDCraft.",
                 publishedAt = "Up to date",
-                htmlUrl = "https://github.com/$cleanedRepo/releases",
+                htmlUrl = "",
                 apkDownloadUrl = null,
                 apkFileName = null,
                 apkSizeBytes = 0L,
@@ -215,26 +240,49 @@ class GitHubUpdateClient(
     }
 
     /**
-     * Downloads the release `.apk` inside the app (never opening the browser) into the app's
-     * cache/updates folder and emits real-time progress (percentage, downloaded MB, total MB).
+     * Downloads the update `.apk` inside the app (with HTTP Range resume support, storage checks,
+     * and ZIP/APK magic header integrity verification) and emits real-time progress.
      */
     suspend fun downloadUpdateApk(
         apkUrl: String,
         versionTag: String,
+        expectedSizeBytes: Long = 0L,
         onProgress: (ApkDownloadProgress) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
-            val ctx = context ?: throw IllegalStateException("Application context unavailable for APK download.")
+            val ctx = context ?: throw IllegalStateException("Application context unavailable for update download.")
+            if (!isDeviceOnline()) {
+                throw IOException("Connection lost")
+            }
+
             val baseDir = ctx.externalCacheDir ?: ctx.cacheDir
             val updatesDir = File(baseDir, "updates").apply {
                 if (!exists()) mkdirs()
             }
 
+            // Check storage space before downloading
+            val availableBytes = runCatching { StatFs(updatesDir.absolutePath).availableBytes }.getOrDefault(Long.MAX_VALUE)
+            val requiredBytes = if (expectedSizeBytes > 0L) expectedSizeBytes + (15L * 1024L * 1024L) else 60L * 1024L * 1024L
+            if (availableBytes < requiredBytes) {
+                throw IllegalStateException("Not enough storage space to download this update. Please free up at least ${requiredBytes / (1024 * 1024)} MB and try again.")
+            }
+
             val sanitizedTag = versionTag.replace(Regex("[^a-zA-Z0-9._-]"), "_")
             val targetFile = File(updatesDir, "ZEDCraft-$sanitizedTag.apk")
             val tempFile = File(updatesDir, "ZEDCraft-$sanitizedTag.apk.part")
-            if (tempFile.exists()) {
+
+            // If targetFile already exists and passes verification, return it immediately
+            if (targetFile.exists() && isValidApkFile(targetFile, expectedSizeBytes)) {
+                val mb = targetFile.length().toFloat() / (1024f * 1024f)
+                onProgress(ApkDownloadProgress(percent = 100, downloadedMb = mb, totalMb = mb))
+                return@runCatching targetFile
+            }
+
+            var existingBytes = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
+            if (expectedSizeBytes > 0L && existingBytes >= expectedSizeBytes) {
+                // Reset if previous part file is larger than expected
                 tempFile.delete()
+                existingBytes = 0L
             }
 
             val reqBuilder = Request.Builder()
@@ -242,52 +290,89 @@ class GitHubUpdateClient(
                 .header("Accept", "application/octet-stream, application/vnd.android.package-archive, */*")
                 .header("User-Agent", "ZEDCraft-Android/${BuildConfig.VERSION_NAME}")
 
-            val token = getGitHubToken()
+            val token = getAuthToken()
             if (!token.isNullOrBlank()) {
                 reqBuilder.header("Authorization", "Bearer $token")
             }
+            if (existingBytes > 0L) {
+                reqBuilder.header("Range", "bytes=$existingBytes-")
+            }
 
-            httpClient.newCall(reqBuilder.build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("Download failed (HTTP ${response.code}). Please try again.")
-                }
-                val body = response.body ?: throw IllegalStateException("Empty APK response from server.")
-                val totalBytes = body.contentLength()
-                val totalMb = if (totalBytes > 0) totalBytes.toFloat() / (1024f * 1024f) else 0f
+            try {
+                httpClient.newCall(reqBuilder.build()).execute().use { response ->
+                    if (response.code == 416) {
+                        // Range not satisfiable; delete .part and retry cleanly
+                        tempFile.delete()
+                        throw IOException("Connection lost")
+                    }
+                    if (!response.isSuccessful) {
+                        throw IllegalStateException("Update download failed (HTTP ${response.code}). Please tap Retry.")
+                    }
 
-                body.byteStream().use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        val buffer = ByteArray(16 * 1024)
-                        var downloadedBytes = 0L
-                        var bytesRead: Int
-                        var lastEmitMs = 0L
+                    val body = response.body ?: throw IllegalStateException("Empty update response from server.")
+                    val isResumed = response.code == 206 && existingBytes > 0L
+                    val startOffset = if (isResumed) existingBytes else 0L
+                    val remainingBytes = body.contentLength()
+                    val totalBytes = when {
+                        remainingBytes > 0L -> startOffset + remainingBytes
+                        expectedSizeBytes > 0L -> expectedSizeBytes
+                        else -> -1L
+                    }
+                    val totalMb = if (totalBytes > 0L) totalBytes.toFloat() / (1024f * 1024f) else 0f
 
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            coroutineContext.ensureActive()
-                            output.write(buffer, 0, bytesRead)
-                            downloadedBytes += bytesRead
+                    if (startOffset > 0L && totalBytes > 0L) {
+                        val initMb = startOffset.toFloat() / (1024f * 1024f)
+                        val initPct = ((startOffset * 100L) / totalBytes).toInt().coerceIn(0, 99)
+                        onProgress(ApkDownloadProgress(percent = initPct, downloadedMb = initMb, totalMb = totalMb))
+                    }
 
-                            val now = System.currentTimeMillis()
-                            if (now - lastEmitMs >= 80L || downloadedBytes == totalBytes) {
-                                lastEmitMs = now
-                                val downloadedMb = downloadedBytes.toFloat() / (1024f * 1024f)
-                                val pct = if (totalBytes > 0L) {
-                                    ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
-                                } else {
-                                    -1
-                                }
-                                onProgress(
-                                    ApkDownloadProgress(
-                                        percent = pct,
-                                        downloadedMb = downloadedMb,
-                                        totalMb = if (totalMb > 0f) totalMb else downloadedMb
+                    body.byteStream().use { input ->
+                        FileOutputStream(tempFile, isResumed).use { output ->
+                            val buffer = ByteArray(16 * 1024)
+                            var downloadedBytes = startOffset
+                            var bytesRead: Int
+                            var lastEmitMs = 0L
+
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                coroutineContext.ensureActive()
+                                output.write(buffer, 0, bytesRead)
+                                downloadedBytes += bytesRead
+
+                                val now = System.currentTimeMillis()
+                                if (now - lastEmitMs >= 70L || (totalBytes > 0L && downloadedBytes >= totalBytes)) {
+                                    lastEmitMs = now
+                                    val downloadedMb = downloadedBytes.toFloat() / (1024f * 1024f)
+                                    val pct = if (totalBytes > 0L) {
+                                        ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                                    } else {
+                                        -1
+                                    }
+                                    onProgress(
+                                        ApkDownloadProgress(
+                                            percent = pct,
+                                            downloadedMb = downloadedMb,
+                                            totalMb = if (totalMb > 0f) totalMb else downloadedMb
+                                        )
                                     )
-                                )
+                                }
                             }
+                            output.flush()
                         }
-                        output.flush()
+                    }
+
+                    // Verify full download length against server contentLength
+                    if (totalBytes > 0L && tempFile.length() < totalBytes) {
+                        throw IOException("Connection lost")
                     }
                 }
+            } catch (ioe: IOException) {
+                throw IllegalStateException("Connection lost. Check your internet connection and tap Retry to resume.")
+            }
+
+            // Verify APK file integrity (ZIP/APK magic bytes and minimum size) before installing
+            if (!isValidApkFile(tempFile, expectedSizeBytes)) {
+                tempFile.delete()
+                throw IllegalStateException("Downloaded update file was incomplete or corrupted. Please tap Retry.")
             }
 
             if (targetFile.exists()) {
@@ -298,15 +383,32 @@ class GitHubUpdateClient(
                 tempFile.delete()
             }
 
-            if (!targetFile.exists() || targetFile.length() < 10_000L) {
-                throw IllegalStateException("Downloaded APK file is incomplete or corrupted.")
-            }
-
             targetFile
         }.onFailure { err ->
             if (err is CancellationException) throw err
-            Log.e(TAG, "In-app APK download failed", err)
+            Log.e(TAG, "In-app update download failed", err)
         }
+    }
+
+    /**
+     * Verifies that the downloaded file is non-empty, matches expected size (if known),
+     * and begins with standard APK/ZIP magic bytes (`PK\x03\x04`).
+     */
+    private fun isValidApkFile(file: File, expectedSizeBytes: Long): Boolean {
+        if (!file.exists() || file.length() < 100_000L) return false
+        if (expectedSizeBytes > 0L && file.length() < (expectedSizeBytes * 0.98).toLong()) {
+            return false
+        }
+        return runCatching {
+            val header = ByteArray(4)
+            FileInputStream(file).use { fis ->
+                if (fis.read(header) != 4) return@runCatching false
+            }
+            header[0] == 0x50.toByte() &&
+                header[1] == 0x4B.toByte() &&
+                header[2] == 0x03.toByte() &&
+                header[3] == 0x04.toByte()
+        }.getOrDefault(false)
     }
 
     /**
@@ -358,12 +460,13 @@ class GitHubUpdateClient(
         obj: JSONObject
     ): GitHubReleaseInfo {
         val tagName = obj.optString("tag_name", "v$currentVersion").ifBlank { "v$currentVersion" }
-        val name = obj.optString("name", tagName).ifBlank { tagName }
-        val notes = obj.optString("body", "").ifBlank {
-            "New ZEDCraft update ($tagName) with performance improvements and new features."
+        val cleanVer = tagName.removePrefix("v").removePrefix("V")
+        val rawName = obj.optString("name", "ZEDCraft $cleanVer").ifBlank { "ZEDCraft $cleanVer" }
+        val rawNotes = obj.optString("body", "").ifBlank {
+            "New ZEDCraft update ($cleanVer) with performance improvements and smart suggestions."
         }
+        val cleanNotes = sanitizeUpdateNotes(rawNotes)
         val publishedAt = obj.optString("published_at", "").take(10).ifBlank { "Latest" }
-        val htmlUrl = obj.optString("html_url", "https://github.com/$repo/releases")
 
         var apkUrl: String? = null
         var apkName: String? = null
@@ -388,16 +491,28 @@ class GitHubUpdateClient(
         return GitHubReleaseInfo(
             repository = repo,
             latestTag = tagName,
-            releaseTitle = name,
-            releaseNotes = notes,
+            releaseTitle = sanitizeUpdateNotes(rawName),
+            releaseNotes = cleanNotes,
             publishedAt = publishedAt,
-            htmlUrl = htmlUrl,
+            htmlUrl = "",
             apkDownloadUrl = apkUrl,
             apkFileName = apkName,
             apkSizeBytes = apkSize,
             isUpdateAvailable = isUpdateAvailable,
             currentVersion = currentVersion
         )
+    }
+
+    private fun sanitizeUpdateNotes(text: String): String {
+        return text
+            .replace(Regex("(?i)github\\s+release\\s*"), "ZEDCraft update ")
+            .replace(Regex("(?i)github\\s+repository"), "ZEDCraft")
+            .replace(Regex("(?i)github"), "ZEDCraft")
+            .replace(Regex("(?i)repositories"), "updates")
+            .replace(Regex("(?i)repository"), "app")
+            .replace(Regex("(?i)releases"), "updates")
+            .replace(Regex("(?i)release\\s+notes"), "What's new")
+            .trim()
     }
 
     private fun normalizeRepoPath(input: String): String {
@@ -420,10 +535,10 @@ class GitHubUpdateClient(
         const val DEFAULT_GITHUB_REPO = "khalil4ever/ZEDCraft-"
         private const val PREFS_NAME = "zedcraft_auto_update_prefs"
         private const val KEY_LAST_SILENT_CHECK_MS = "last_silent_check_ms"
-        private const val SILENT_CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000L // 3 hours
+        private const val SILENT_CHECK_INTERVAL_MS = 15 * 60 * 1000L // 15 minutes fallback interval
 
         /**
-         * Proper semantic version comparison (e.g., "v1.2.1" > "1.2.0", "v1.10.0" > "v1.2.9").
+         * Proper semantic version comparison (e.g., "v1.2.1" > "1.2.0", "v1.10.0" > "v1.9.0").
          */
         fun compareVersions(remoteTag: String, localVersion: String): Int {
             val cleanRemote = remoteTag.trim().removePrefix("v").removePrefix("V").substringBefore("-")

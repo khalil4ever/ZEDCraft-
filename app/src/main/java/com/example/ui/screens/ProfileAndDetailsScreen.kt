@@ -773,7 +773,7 @@ fun CreditsScreen(
                         color = ZedCyanPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Checking GitHub for updates...", color = ZedCyanPrimary)
+                    Text("Checking for updates...", color = ZedCyanPrimary)
                 } else {
                     Icon(
                         imageVector = Icons.Default.SystemUpdateAlt,
@@ -1001,6 +1001,233 @@ fun VideoDeepAnalyzerScreen(
                             Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Optimize & Apply Changes to This Video", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Smart Suggestions right under the SEO Audit Score
+            if (uiState.isLoadingVideoSmartSuggestions) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                        border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = ZedCyanPrimary
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Building Smart Suggestions from top-ranking YouTube results...",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ZedCyanPrimary
+                                )
+                            }
+                            repeat(3) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(ZedDarkSurfaceElevated)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            val smartSuggestions = uiState.inspectedVideoSmartSuggestions
+            if (smartSuggestions != null) {
+                item {
+                    val context = LocalContext.current
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+                        border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Smart Suggestions (Title, Description & Tags)",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = smartSuggestions.dataSourceBadge,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (smartSuggestions.isBackedByLiveYouTubeData) ZedEmeraldSuccess else ZedAmberWarning
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.regenerateInspectedVideoSmartSuggestions() },
+                                    enabled = !uiState.isLoadingVideoSmartSuggestions,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, ZedCyanPrimary),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Regenerate",
+                                        tint = ZedCyanPrimary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Regenerate", style = MaterialTheme.typography.labelSmall, color = ZedCyanPrimary)
+                                }
+                            }
+
+                            if (smartSuggestions.searchPatternsSummary.isNotEmpty()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = ZedDarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, ZedCardBorder)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = "Winning Patterns in Top Results:",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ZedCyanPrimary
+                                        )
+                                        smartSuggestions.searchPatternsSummary.take(3).forEach { p ->
+                                            Text(
+                                                text = "• $p",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = ZedTextSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "Better Title Suggestions (${smartSuggestions.suggestedTitles.size} Options)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = ZedCyanPrimary
+                            )
+
+                            smartSuggestions.suggestedTitles.take(5).forEachIndexed { idx, item ->
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = ZedDarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, ZedCardBorder)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "#${idx + 1} • ${item.tagBadge}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ZedPurpleAccent
+                                            )
+                                            Text(
+                                                text = "${item.score}/100 • ${item.characterCount} chars",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ZedEmeraldSuccess
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = item.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = item.whyItWorks,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = ZedTextSecondary
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    clipboard.setPrimaryClip(ClipData.newPlainText("Title", item.title))
+                                                    Toast.makeText(context, "Copied title!", Toast.LENGTH_SHORT).show()
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, ZedCardBorder),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                            ) {
+                                                Text("Copy", style = MaterialTheme.typography.labelSmall, color = ZedCyanPrimary)
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    viewModel.selectTargetVideoForOptimize(
+                                                        video = v,
+                                                        subTab = OptimizeSubTab.Title,
+                                                        navigateToOptimize = true,
+                                                        autoRunOptimizer = false
+                                                    )
+                                                    viewModel.useSuggestedTitle(item.title)
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.6f)),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                            ) {
+                                                Text("Use This Title", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (smartSuggestions.hashtags.isNotEmpty() || smartSuggestions.smartTagSuggestions.isNotEmpty()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = ZedDarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, ZedCardBorder)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = "Recommended Hashtags: ${smartSuggestions.hashtags.take(3).joinToString(" ")}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ZedPurpleAccent
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Top Ranking Tags: ${
+                                                smartSuggestions.smartTagSuggestions.take(8)
+                                                    .joinToString(", ") { "${it.tag} (${it.commonalityLabel})" }
+                                            }",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = ZedTextSecondary
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

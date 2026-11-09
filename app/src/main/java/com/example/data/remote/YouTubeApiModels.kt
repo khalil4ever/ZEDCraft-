@@ -247,3 +247,40 @@ data class ChannelHealthReport(
     val policyChecks: List<PolicyRiskCheck>,
     val dropDiagnosisSummary: String
 )
+
+data class CompetitorTagFrequency(
+    val tag: String,
+    val usedInTopCount: Int,
+    val totalVideosAnalyzed: Int,
+    val isFromLiveSearch: Boolean = true
+) {
+    val commonalityLabel: String
+        get() = if (isFromLiveSearch && usedInTopCount > 0 && totalVideosAnalyzed > 0) {
+            "Used in $usedInTopCount/$totalVideosAnalyzed top videos"
+        } else {
+            "Related keyword"
+        }
+}
+
+data class TopicSearchPatterns(
+    val query: String,
+    val isLiveYouTubeData: Boolean,
+    val dataSourceLabel: String,
+    val quotaExhaustedOrOfflineNote: String? = null,
+    val topVideos: List<YtVideoDetail> = emptyList(),
+    val avgViews: Long = 0L,
+    val medianViews: Long = 0L,
+    val maxViews: Long = 0L,
+    val avgChannelSubscribers: Long = 0L,
+    val avgTitleLength: Int = 54,
+    val numberUsageCount: Int = 0,
+    val totalVideosAnalyzed: Int = 0,
+    val commonKeywords: List<String> = emptyList(),
+    val repeatingPhrases: List<String> = emptyList(),
+    val strongOpeningWords: List<String> = emptyList(),
+    val smallChannelOutlierGaps: List<String> = emptyList(),
+    val tagFrequencies: List<CompetitorTagFrequency> = emptyList(),
+    val topHashtags: List<String> = emptyList(),
+    val patternSummaryBullets: List<String> = emptyList()
+)
+

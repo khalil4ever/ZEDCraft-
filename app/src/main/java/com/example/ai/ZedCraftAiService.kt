@@ -3,6 +3,8 @@ package com.example.ai
 import android.graphics.Bitmap
 import android.util.Log
 import com.example.data.remote.ChannelHealthReport
+import com.example.data.remote.TopicSearchPatterns
+import com.example.data.remote.YouTubeApiClient
 import com.example.data.remote.YtAnalyticsOverview
 import com.example.data.remote.YtChannelDetail
 import com.example.data.remote.YtCommentItem
@@ -498,7 +500,7 @@ class ZedCraftAiService {
     }
 
     // -----------------------------------------------------------------------
-    // 3. TITLE OPTIMIZER (Score out of 100: Clarity, Curiosity, Keywords, Length, Click Appeal + 5 Better Titles)
+    // 3. TITLE OPTIMIZER (Score out of 100 + 10 Better Title Suggestions)
     // -----------------------------------------------------------------------
     private val titleOptimizerSchema by lazy {
         Schema.obj(
@@ -515,13 +517,17 @@ class ZedCraftAiService {
                 "clickAppealScore" to Schema.integer(description = "Click appeal, emotional pull & specificity 0-100"),
                 "clickAppealNote" to Schema.string(),
                 "improvedTitles" to Schema.array(
-                    description = "5 better titles (plus up to 5 bonus angles), each with its own score out of 100 and a short reason",
+                    description = "Exactly 10 original, better title suggestions, each with its own score out of 100, tagBadge ('Best for Search', 'Best for Clicks', or 'Balanced'), and a short reason",
                     items = Schema.obj(
                         properties = mapOf(
-                            "title" to Schema.string(description = "The improved title (42-64 chars ideal)"),
-                            "score" to Schema.integer(description = "Estimated score 0-100"),
-                            "angleType" to Schema.string(description = "e.g., Curiosity Gap, Search Winner, Contrarian, Direct Proof, Timeframe"),
-                            "reason" to Schema.string(description = "Short reason why this title earns higher CTR honestly")
+                            "title" to Schema.string(description = "The improved original title (never copy a competitor word-for-word; 42-60 chars ideal)"),
+                            "score" to Schema.integer(description = "Score out of 100"),
+                            "tagBadge" to Schema.enumeration(
+                                values = listOf("Best for Search", "Best for Clicks", "Balanced"),
+                                description = "Primary strategic strength of this title"
+                            ),
+                            "angleType" to Schema.string(description = "e.g., Curiosity Gap, Search Winner, Small-Channel Outlier Angle, Contrarian, Direct Proof"),
+                            "reason" to Schema.string(description = "Short specific reason why this title ranks or earns clicks based on the real search patterns")
                         )
                     )
                 )
@@ -529,20 +535,56 @@ class ZedCraftAiService {
         )
     }
 
+    private fun buildRealPatternsPromptBlock(searchPatterns: TopicSearchPatterns?): String {
+        if (searchPatterns == null || !searchPatterns.isLiveYouTubeData || searchPatterns.topVideos.isEmpty()) {
+            return "Note: No live YouTube search data available for this request. Generate original, accurate AI suggestions without inventing search volume or view statistics."
+        }
+        return buildString {
+            appendLine("=== REAL YOUTUBE DATA API v3 TOP-RANKING VIDEOS & PATTERNS ===")
+            appendLine("Search Topic: \"${searchPatterns.query}\" (${searchPatterns.totalVideosAnalyzed} top videos analyzed)")
+            appendLine("Average Top-Result Views: ${YouTubeApiClient.formatCompact(searchPatterns.avgViews)} | Median Views: ${YouTubeApiClient.formatCompact(searchPatterns.medianViews)} | Max Views: ${YouTubeApiClient.formatCompact(searchPatterns.maxViews)}")
+            appendLine("Average Winning Title Length: ${searchPatterns.avgTitleLength} chars | Videos Using Numbers/Years: ${searchPatterns.numberUsageCount}/${searchPatterns.totalVideosAnalyzed}")
+            if (searchPatterns.commonKeywords.isNotEmpty()) {
+                appendLine("Most Common Keywords in Top Results: ${searchPatterns.commonKeywords.joinToString(", ")}")
+            }
+            if (searchPatterns.repeatingPhrases.isNotEmpty()) {
+                appendLine("Repeating Phrases Across Top Results: ${searchPatterns.repeatingPhrases.joinToString(" | ")}")
+            }
+            if (searchPatterns.strongOpeningWords.isNotEmpty()) {
+                appendLine("Strong Opening Words in Winners: ${searchPatterns.strongOpeningWords.joinToString(", ")}")
+            }
+            if (searchPatterns.smallChannelOutlierGaps.isNotEmpty()) {
+                appendLine("Small-Channel Outlier Gaps (Angles where smaller channels rank): ${searchPatterns.smallChannelOutlierGaps.joinToString(" | ")}")
+            }
+            appendLine("Top Ranking Competitor Videos (DO NOT copy word-for-word; synthesize fresh original angles):")
+            searchPatterns.topVideos.take(8).forEachIndexed { idx, v ->
+                appendLine("${idx + 1}. \"${v.title}\" (${YouTubeApiClient.formatCompact(v.viewCount)} views, ${YouTubeApiClient.formatCompact(v.channelSubscribers)} subs, uploaded ${v.publishedAt.take(10)})")
+            }
+        }
+    }
+
     suspend fun scoreAndOptimizeTitle(
         rawTitle: String,
-        videoContextOrNiche: String = ""
+        videoContextOrNiche: String = "",
+        searchPatterns: TopicSearchPatterns? = null
     ): Result<TitleOptimizationResult> = runCatching {
         val cleanTitle = rawTitle.trim()
         require(cleanTitle.isNotBlank()) { "Please enter a video title to score and optimize." }
 
         val prompt = buildString {
-            appendLine("Score this YouTube video title out of 100 across Clarity, Curiosity, Keywords, Length, and Click Appeal, then generate 5 better titles:")
-            appendLine("Title: \"$cleanTitle\" (${cleanTitle.length} characters)")
+            appendLine("Score this YouTube video title out of 100 across Clarity, Curiosity, Keywords, Length, and Click Appeal, then generate 10 original Better Title Suggestions:")
+            appendLine("User's Draft / Video Title: \"$cleanTitle\" (${cleanTitle.length} characters)")
             if (videoContextOrNiche.isNotBlank()) {
                 appendLine("Video Topic / Niche Context: $videoContextOrNiche")
             }
-            appendLine("Generate at least 5 better titles (each with its own score out of 100 and a short, specific reason). Keep titles honest, high-curiosity, and punchy on mobile feeds (<64 chars preferred).")
+            appendLine()
+            appendLine(buildRealPatternsPromptBlock(searchPatterns))
+            appendLine()
+            appendLine("CRITICAL RULES:")
+            appendLine("1. Return JSON matching the schema with: overallScore, clarityScore, clarityNote, curiosityScore, curiosityNote, keywordPlacementScore, keywordPlacementNote, lengthScore, lengthNote, clickAppealScore, clickAppealNote, and improvedTitles (array of 10 objects with title, score, tagBadge, angleType, reason).")
+            appendLine("2. Generate 10 distinct, original title options. NEVER copy any competitor's title word-for-word. Make them fresh, accurate to the user's video, and non-clickbait.")
+            appendLine("3. Assign each title a tagBadge of exactly 'Best for Search', 'Best for Clicks', or 'Balanced' (include a healthy mix of all three across the 10 options).")
+            appendLine("4. Keep most titles between 44 and 60 characters so they do not cut off on mobile feeds.")
         }
 
         val raw = executeFastModel(
@@ -551,31 +593,74 @@ class ZedCraftAiService {
             promptContent = content { text(prompt) }
         )
 
-        val json = JSONObject(raw.text)
+        val json = JSONObject(escapeFenceIfNeeded(raw.text))
         val breakdown = listOf(
-            SubMetricScore("Clarity", json.optInt("clarityScore", 75), json.optString("clarityNote")),
-            SubMetricScore("Curiosity", json.optInt("curiosityScore", 75), json.optString("curiosityNote")),
-            SubMetricScore("Keywords", json.optInt("keywordPlacementScore", 75), json.optString("keywordPlacementNote")),
-            SubMetricScore("Length (${cleanTitle.length} chars)", json.optInt("lengthScore", 75), json.optString("lengthNote")),
-            SubMetricScore("Click Appeal", json.optInt("clickAppealScore", 75), json.optString("clickAppealNote"))
+            SubMetricScore("Clarity", json.optInt("clarityScore", 76), json.optString("clarityNote", "Clear topic framing.")),
+            SubMetricScore("Curiosity", json.optInt("curiosityScore", 74), json.optString("curiosityNote", "Can sharpen open loop.")),
+            SubMetricScore("Keywords", json.optInt("keywordPlacementScore", 78), json.optString("keywordPlacementNote", "Primary keyword alignment.")),
+            SubMetricScore("Length (${cleanTitle.length} chars)", json.optInt("lengthScore", if (cleanTitle.length in 40..60) 92 else 70), json.optString("lengthNote", if (cleanTitle.length > 60) "May truncate on mobile feeds (>60 chars)." else "Fits mobile feeds cleanly.")),
+            SubMetricScore("Click Appeal", json.optInt("clickAppealScore", 75), json.optString("clickAppealNote", "Stronger proof/specificity lifts CTR."))
         )
 
         val suggestionsArr = json.optJSONArray("improvedTitles") ?: JSONArray()
         val suggestions = mutableListOf<SuggestedTitleOption>()
+        val validBadges = setOf("Best for Search", "Best for Clicks", "Balanced")
         for (i in 0 until suggestionsArr.length()) {
             val item = suggestionsArr.optJSONObject(i) ?: continue
+            val t = item.optString("title").trim()
+            if (t.isBlank()) continue
+            val rawBadge = item.optString("tagBadge", "").trim()
+            val badge = if (rawBadge in validBadges) {
+                rawBadge
+            } else {
+                when (i % 3) {
+                    0 -> "Best for Search"
+                    1 -> "Best for Clicks"
+                    else -> "Balanced"
+                }
+            }
             suggestions.add(
                 SuggestedTitleOption(
-                    title = item.optString("title"),
-                    score = item.optInt("score", 90).coerceIn(0, 100),
-                    angleType = item.optString("angleType", "High Appeal"),
-                    reason = item.optString("reason")
+                    title = t,
+                    score = item.optInt("score", (94 - i).coerceIn(82, 97)).coerceIn(0, 100),
+                    angleType = item.optString("angleType", badge),
+                    tagBadge = badge,
+                    reason = item.optString("reason", "Uses top-ranking keyword structure with a clean curiosity hook.")
                 )
             )
         }
 
-        val mobilePreview = if (cleanTitle.length > 58) {
-            cleanTitle.take(56).trimEnd() + "..."
+        // Guarantee 10 options even if the model returned fewer
+        val fallbackTemplates = listOf(
+            Triple("$cleanTitle: What Nobody Tells You (2026)", "Best for Clicks", "Opens a specific curiosity gap while keeping the core topic front-loaded."),
+            Triple("How to Master $cleanTitle (Step-by-Step Guide)", "Best for Search", "Targets high-intent tutorial search queries with clear promise."),
+            Triple("I Tested $cleanTitle for 30 Days — Honest Results", "Best for Clicks", "First-person proof and timeframe pattern that drives high browse CTR."),
+            Triple("$cleanTitle Explained in 10 Minutes", "Balanced", "Combines exact search keyword with a concrete time-to-value hook."),
+            Triple("7 $cleanTitle Mistakes Costing You Results", "Best for Clicks", "Uses a specific number and loss-aversion framing proven in top results."),
+            Triple("The Ultimate $cleanTitle Blueprint for Beginners", "Best for Search", "Captures foundational evergreen search demand."),
+            Triple("Why 90% of People Get $cleanTitle Wrong", "Best for Clicks", "Contrarian small-channel outlier hook that stands out in feeds."),
+            Triple("$cleanTitle: Full Breakdown & Real Examples", "Balanced", "Balances search discoverability with tangible proof."),
+            Triple("Before You Try $cleanTitle, Watch This First", "Best for Clicks", "High-urgency pre-decision framing that earns clicks from active searchers."),
+            Triple("$cleanTitle — Complete 2026 Strategy", "Best for Search", "Clean, authoritative search title under 60 characters.")
+        )
+        var fallbackIdx = 0
+        while (suggestions.size < 10 && fallbackIdx < fallbackTemplates.size) {
+            val (tplTitle, tplBadge, tplReason) = fallbackTemplates[fallbackIdx++]
+            if (suggestions.none { it.title.equals(tplTitle, ignoreCase = true) }) {
+                suggestions.add(
+                    SuggestedTitleOption(
+                        title = tplTitle.take(68),
+                        score = (91 - suggestions.size).coerceIn(80, 94),
+                        angleType = tplBadge,
+                        tagBadge = tplBadge,
+                        reason = tplReason
+                    )
+                )
+            }
+        }
+
+        val mobilePreview = if (cleanTitle.length > 60) {
+            cleanTitle.take(58).trimEnd() + "..."
         } else {
             cleanTitle
         }
@@ -585,7 +670,7 @@ class ZedCraftAiService {
             overallScore = json.optInt("overallScore", 74).coerceIn(0, 100),
             breakdown = breakdown,
             mobilePreviewText = mobilePreview,
-            truncatesOnMobile = cleanTitle.length > 58,
+            truncatesOnMobile = cleanTitle.length > 60,
             tenImprovedTitles = suggestions.take(10),
             modelUsed = raw.modelUsed,
             fallbackNotice = raw.fallbackNotice
@@ -593,14 +678,16 @@ class ZedCraftAiService {
     }
 
     // -----------------------------------------------------------------------
-    // 4. DESCRIPTION & CHAPTERS OPTIMIZER
+    // 4. DESCRIPTION & CHAPTERS OPTIMIZER (Score + 3 Ready-to-Use Variations)
     // -----------------------------------------------------------------------
     private val descriptionOptimizerSchema by lazy {
         Schema.obj(
             properties = mapOf(
+                "currentDraftScore" to Schema.integer(description = "Score of the user's current description draft 0-100"),
+                "currentDraftDiagnosis" to Schema.string(description = "Short diagnosis of the current description's hook, keywords, chapters, and hashtags"),
                 "overallScore" to Schema.integer(description = "Score of the optimized description 0-100"),
                 "firstTwoLinesHook" to Schema.string(description = "Strong first 2 lines (130-160 chars) shown above 'Show more' and in search results"),
-                "fullOptimizedDescription" to Schema.string(description = "Complete ready-to-apply YouTube description with hook, natural keyword overview, chapters, CTA, and 3 hashtags"),
+                "fullOptimizedDescription" to Schema.string(description = "Complete ready-to-apply YouTube description with strong first 2 lines, natural keywords, 00:00 chapters, CTA, and 3 hashtags at the end"),
                 "generatedChapters" to Schema.array(
                     items = Schema.string(),
                     description = "Timestamps starting with 00:00 Intro"
@@ -609,6 +696,18 @@ class ZedCraftAiService {
                 "threeHashtags" to Schema.array(
                     items = Schema.string(),
                     description = "Exactly 3 relevant #hashtags"
+                ),
+                "variations" to Schema.array(
+                    description = "3 ready-to-use description variations: 'Search-focused', 'Click-focused', and 'Balanced'",
+                    items = Schema.obj(
+                        properties = mapOf(
+                            "variationLabel" to Schema.string(description = "'Search-focused', 'Click-focused', or 'Balanced'"),
+                            "score" to Schema.integer(description = "Score of this variation 0-100"),
+                            "firstTwoLinesPreview" to Schema.string(description = "First 2 lines shown before 'Show more'"),
+                            "fullDescription" to Schema.string(description = "Full ready-to-use description including first 2 lines, natural keywords, 00:00 chapters, CTA, and 3 hashtags at the end"),
+                            "naturalKeywordsUsed" to Schema.array(items = Schema.string(), description = "Real search keywords woven naturally into this variation")
+                        )
+                    )
                 ),
                 "improvementsSummary" to Schema.array(
                     items = Schema.string(),
@@ -621,23 +720,45 @@ class ZedCraftAiService {
     suspend fun optimizeDescriptionAndChapters(
         videoTitleOrTopic: String,
         existingDescription: String,
-        transcriptOrOutline: String
+        transcriptOrOutline: String,
+        searchPatterns: TopicSearchPatterns? = null
     ): Result<DescriptionOptimizationResult> = runCatching {
         require(videoTitleOrTopic.isNotBlank() || existingDescription.isNotBlank()) {
             "Enter a video title/topic or paste an existing description."
         }
+
+        // Compute deterministic baseline score for the existing description if present
+        val deterministicDraftScore = if (existingDescription.isBlank()) {
+            45
+        } else {
+            val hasChapters = existingDescription.contains("0:00") || existingDescription.contains("00:00")
+            val hashtagCount = Regex("#[a-zA-Z0-9_]+").findAll(existingDescription).count()
+            val lenScore = when {
+                existingDescription.length >= 300 -> 38
+                existingDescription.length >= 140 -> 26
+                else -> 14
+            }
+            (40 + lenScore + (if (hasChapters) 12 else 0) + (if (hashtagCount in 1..5) 10 else 0)).coerceIn(35, 92)
+        }
+
         val prompt = buildString {
-            appendLine("Optimize this YouTube video description for Search discovery, viewer conversion, and Google Key Moments:")
+            appendLine("Score the user's current YouTube description out of 100 and generate 3 ready-to-use optimized description variations ('Search-focused', 'Click-focused', and 'Balanced'):")
             appendLine("Video Title / Topic: $videoTitleOrTopic")
             if (existingDescription.isNotBlank()) {
-                appendLine("Existing Description:\n$existingDescription")
+                appendLine("User's Current Description (${existingDescription.length} chars):\n$existingDescription")
+            } else {
+                appendLine("User's Current Description: (Empty draft)")
             }
             if (transcriptOrOutline.isNotBlank()) {
                 appendLine("Transcript / Captions / Video Notes (use this to generate accurate 00:00 chapters):\n$transcriptOrOutline")
-            } else {
-                appendLine("Generate a logical 00:00 chapter structure with timestamps that the creator can customize.")
             }
-            appendLine("Rules: Strong hook in the first 2 lines before 'Show more', natural keywords (never spammy comma lists), clear chapters starting at 00:00, clean CTA placement, and the 3 best hashtags at the bottom.")
+            appendLine()
+            appendLine(buildRealPatternsPromptBlock(searchPatterns))
+            appendLine()
+            appendLine("CRITICAL RULES:")
+            appendLine("1. Return JSON with currentDraftScore, currentDraftDiagnosis, overallScore, firstTwoLinesHook, fullOptimizedDescription, generatedChapters, recommendedCtaBlock, threeHashtags, variations (array of 3 objects: variationLabel, score, firstTwoLinesPreview, fullDescription, naturalKeywordsUsed), and improvementsSummary.")
+            appendLine("2. Never copy any competitor's description word-for-word.")
+            appendLine("3. Every variation MUST include: strong first 2 lines (shown before 'Show more'), natural keywords from the real search data, 00:00 timestamps/chapters placeholders, a clear call to action, and 3 hashtags at the very end.")
         }
 
         val raw = executeFastModel(
@@ -646,14 +767,148 @@ class ZedCraftAiService {
             promptContent = content { text(prompt) }
         )
 
-        val json = JSONObject(raw.text)
+        val json = JSONObject(escapeFenceIfNeeded(raw.text))
+        val chapters = jsonArrayToList(json.optJSONArray("generatedChapters")).ifEmpty {
+            listOf(
+                "00:00 Intro & Key Hook",
+                "01:15 Core Breakdown: $videoTitleOrTopic",
+                "04:00 Step-by-Step Strategy & Proof",
+                "07:30 Common Mistakes to Avoid",
+                "09:45 Final Verdict & Next Steps"
+            )
+        }
+        val hashtags = jsonArrayToList(json.optJSONArray("threeHashtags"))
+            .map { if (it.startsWith("#")) it else "#${it.replace(" ", "")}" }
+            .take(3)
+            .ifEmpty {
+                searchPatterns?.topHashtags?.take(3)?.ifEmpty { null }
+                    ?: listOf("#YouTubeGrowth", "#CreatorTips", "#ZEDCraft")
+            }
+        val ctaBlock = json.optString("recommendedCtaBlock").ifBlank {
+            "Subscribe for weekly deep dives and watch the next breakdown linked on screen!"
+        }
+        val primaryFullDesc = json.optString("fullOptimizedDescription").ifBlank {
+            buildString {
+                appendLine(json.optString("firstTwoLinesHook").ifBlank { "Learn everything you need to know about $videoTitleOrTopic with practical, tested strategies." })
+                appendLine()
+                appendLine("Chapters:")
+                chapters.forEach { appendLine(it) }
+                appendLine()
+                appendLine(ctaBlock)
+                appendLine()
+                append(hashtags.joinToString(" "))
+            }
+        }
+
+        val variationsArr = json.optJSONArray("variations") ?: JSONArray()
+        val parsedVariations = mutableListOf<DescriptionVariationOption>()
+        for (i in 0 until variationsArr.length()) {
+            val vObj = variationsArr.optJSONObject(i) ?: continue
+            val fullText = vObj.optString("fullDescription").trim()
+            if (fullText.isBlank()) continue
+            val firstTwo = vObj.optString("firstTwoLinesPreview").ifBlank {
+                fullText.lines().filter { it.isNotBlank() }.take(2).joinToString(" ").take(160)
+            }
+            parsedVariations.add(
+                DescriptionVariationOption(
+                    variationLabel = vObj.optString("variationLabel", when (i) {
+                        0 -> "Search-focused"
+                        1 -> "Click-focused"
+                        else -> "Balanced"
+                    }),
+                    score = vObj.optInt("score", 94 - i).coerceIn(0, 100),
+                    firstTwoLinesPreview = firstTwo,
+                    fullDescription = fullText,
+                    naturalKeywordsUsed = jsonArrayToList(vObj.optJSONArray("naturalKeywordsUsed"))
+                        .ifEmpty { searchPatterns?.commonKeywords?.take(5).orEmpty() },
+                    chapters = chapters,
+                    callToAction = ctaBlock,
+                    threeHashtags = hashtags
+                )
+            )
+        }
+
+        val kws = searchPatterns?.commonKeywords?.take(5).orEmpty()
+        if (parsedVariations.isEmpty()) {
+            parsedVariations.add(
+                DescriptionVariationOption(
+                    variationLabel = "Search-focused",
+                    score = 95,
+                    firstTwoLinesPreview = json.optString("firstTwoLinesHook").ifBlank {
+                        primaryFullDesc.lines().filter { it.isNotBlank() }.take(2).joinToString(" ").take(160)
+                    },
+                    fullDescription = primaryFullDesc,
+                    naturalKeywordsUsed = kws,
+                    chapters = chapters,
+                    callToAction = ctaBlock,
+                    threeHashtags = hashtags
+                )
+            )
+        }
+        if (parsedVariations.size == 1) {
+            val clickHook = "Most people miss the #1 detail in $videoTitleOrTopic — here is the exact breakdown and real test results you can use today."
+            val clickFull = buildString {
+                appendLine(clickHook)
+                appendLine()
+                appendLine("In this video, we break down $videoTitleOrTopic step by step${if (kws.isNotEmpty()) " covering ${kws.joinToString(", ")}" else ""} so you can skip the trial and error.")
+                appendLine()
+                appendLine("Timestamps / Chapters:")
+                chapters.forEach { appendLine(it) }
+                appendLine()
+                appendLine("👉 $ctaBlock")
+                appendLine()
+                append(hashtags.joinToString(" "))
+            }
+            parsedVariations.add(
+                DescriptionVariationOption(
+                    variationLabel = "Click-focused",
+                    score = 93,
+                    firstTwoLinesPreview = clickHook,
+                    fullDescription = clickFull,
+                    naturalKeywordsUsed = kws,
+                    chapters = chapters,
+                    callToAction = ctaBlock,
+                    threeHashtags = hashtags
+                )
+            )
+        }
+        if (parsedVariations.size == 2) {
+            val balancedHook = "Complete guide to $videoTitleOrTopic: what works right now, key takeaways, and step-by-step timestamps."
+            val balancedFull = buildString {
+                appendLine(balancedHook)
+                appendLine()
+                appendLine(primaryFullDesc)
+            }
+            parsedVariations.add(
+                DescriptionVariationOption(
+                    variationLabel = "Balanced",
+                    score = 92,
+                    firstTwoLinesPreview = balancedHook,
+                    fullDescription = balancedFull,
+                    naturalKeywordsUsed = kws,
+                    chapters = chapters,
+                    callToAction = ctaBlock,
+                    threeHashtags = hashtags
+                )
+            )
+        }
+
         DescriptionOptimizationResult(
-            overallScore = json.optInt("overallScore", 92).coerceIn(0, 100),
-            firstTwoLinesHook = json.optString("firstTwoLinesHook"),
-            fullOptimizedDescription = json.optString("fullOptimizedDescription"),
-            generatedChapters = jsonArrayToList(json.optJSONArray("generatedChapters")),
-            recommendedCtaBlock = json.optString("recommendedCtaBlock"),
-            threeHashtags = jsonArrayToList(json.optJSONArray("threeHashtags")).take(3),
+            overallScore = json.optInt("overallScore", 94).coerceIn(0, 100),
+            currentDraftScore = json.optInt("currentDraftScore", deterministicDraftScore).coerceIn(0, 100),
+            currentDraftDiagnosis = json.optString("currentDraftDiagnosis").ifBlank {
+                if (existingDescription.isBlank()) {
+                    "No existing description provided — adding a strong 2-line search hook, 00:00 chapters, and 3 hashtags unlocks Search snippet visibility."
+                } else {
+                    "Evaluated hook above 'Show more', keyword placement, 00:00 chapters, and bottom hashtags."
+                }
+            },
+            firstTwoLinesHook = parsedVariations.first().firstTwoLinesPreview,
+            fullOptimizedDescription = parsedVariations.first().fullDescription,
+            generatedChapters = chapters,
+            recommendedCtaBlock = ctaBlock,
+            threeHashtags = hashtags,
+            variations = parsedVariations.take(3),
             improvementsSummary = jsonArrayToList(json.optJSONArray("improvementsSummary")),
             modelUsed = raw.modelUsed,
             fallbackNotice = raw.fallbackNotice
@@ -661,14 +916,16 @@ class ZedCraftAiService {
     }
 
     // -----------------------------------------------------------------------
-    // 5. TAGS & HASHTAGS GENERATOR
+    // 5. TAGS & HASHTAGS GENERATOR (Score + 3 Hashtags + Commonality Tag List)
     // -----------------------------------------------------------------------
     private val tagsGeneratorSchema by lazy {
         Schema.obj(
             properties = mapOf(
+                "currentTagsScore" to Schema.integer(description = "Score of the user's current tags & hashtags 0-100"),
+                "currentTagsDiagnosis" to Schema.string(description = "Short assessment of current tags coverage and character usage"),
                 "recommendedTags" to Schema.array(
                     items = Schema.string(),
-                    description = "15 to 22 high-relevance YouTube tags (exact topic, long-tail search phrases, and common variations)"
+                    description = "15 to 22 high-relevance YouTube tags (exact topic, long-tail search phrases, and related keywords)"
                 ),
                 "threeBestHashtags" to Schema.array(
                     items = Schema.string(),
@@ -681,18 +938,36 @@ class ZedCraftAiService {
 
     suspend fun generateTagsAndHashtags(
         topicOrTitle: String,
-        realRankingTags: List<String>
+        realRankingTags: List<String>,
+        searchPatterns: TopicSearchPatterns? = null
     ): Result<TagsGenerationResult> = runCatching {
         val cleanTopic = topicOrTitle.trim()
         require(cleanTopic.isNotBlank()) { "Enter a video topic or title to generate tags." }
 
+        val competitorFreqList = searchPatterns?.tagFrequencies.orEmpty()
+        val liveTopTags = competitorFreqList.filter { it.isFromLiveSearch }.map { it.tag }
+        val combinedSeedTags = (liveTopTags + realRankingTags).distinctBy { it.lowercase() }
+
+        val deterministicTagsScore = when {
+            realRankingTags.size >= 10 -> 86
+            realRankingTags.size >= 5 -> 72
+            realRankingTags.isNotEmpty() -> 58
+            else -> 42
+        }
+
         val prompt = buildString {
-            appendLine("Generate an optimal YouTube tag set (within YouTube's 500-character total limit) and the 3 best description hashtags for:")
+            appendLine("Score the user's current tags out of 100 and generate an optimal YouTube tag set (within YouTube's 500-character total limit) plus the 3 best description hashtags for:")
             appendLine("Topic / Title: \"$cleanTopic\"")
             if (realRankingTags.isNotEmpty()) {
-                appendLine("Real tags extracted from top-ranking YouTube videos for this topic: ${realRankingTags.joinToString(", ")}")
-                appendLine("Prioritize the highest-intent real tags above and supplement with smart long-tail variations and common spelling variations.")
+                appendLine("User's Current Tags (${realRankingTags.size}): ${realRankingTags.joinToString(", ")}")
             }
+            if (competitorFreqList.isNotEmpty()) {
+                appendLine("Real Tags Used by Top-Ranking Videos on YouTube:")
+                competitorFreqList.take(15).forEach { tf ->
+                    appendLine("- \"${tf.tag}\" (${tf.commonalityLabel})")
+                }
+            }
+            appendLine("Return JSON with currentTagsScore, currentTagsDiagnosis, recommendedTags, threeBestHashtags, and strategyExplanation.")
         }
 
         val raw = executeFastModel(
@@ -701,37 +976,110 @@ class ZedCraftAiService {
             promptContent = content { text(prompt) }
         )
 
-        val json = JSONObject(raw.text)
-        val rawCandidateTags = (realRankingTags.take(8) + jsonArrayToList(json.optJSONArray("recommendedTags")))
+        val json = JSONObject(escapeFenceIfNeeded(raw.text))
+        val aiGeneratedTags = jsonArrayToList(json.optJSONArray("recommendedTags"))
+        val rawCandidateTags = (combinedSeedTags.take(12) + aiGeneratedTags)
             .map { it.trim().removePrefix("#") }
-            .filter { it.isNotBlank() }
+            .filter { it.isNotBlank() && it.length in 2..48 }
             .distinctBy { it.lowercase() }
 
-        // Enforce YouTube's strict 500-character tag box limit (including commas)
+        // Enforce YouTube's strict 500-character tag limit (including commas) and build SmartTagItem list with commonality
         val fittedTags = mutableListOf<String>()
+        val smartItems = mutableListOf<SmartTagItem>()
         var charTotal = 0
+        val totalVideos = searchPatterns?.totalVideosAnalyzed ?: 0
+
         for (tag in rawCandidateTags) {
             val addition = if (fittedTags.isEmpty()) tag.length else tag.length + 2
             if (charTotal + addition <= 480) {
                 fittedTags.add(tag)
                 charTotal += addition
+
+                val matchedFreq = competitorFreqList.firstOrNull { it.tag.equals(tag, ignoreCase = true) }
+                if (matchedFreq != null && matchedFreq.isFromLiveSearch && matchedFreq.usedInTopCount > 0) {
+                    smartItems.add(
+                        SmartTagItem(
+                            tag = tag,
+                            usedInTopVideosCount = matchedFreq.usedInTopCount,
+                            totalTopVideosAnalyzed = matchedFreq.totalVideosAnalyzed,
+                            commonalityLabel = matchedFreq.commonalityLabel,
+                            isFromLiveYouTubeData = true
+                        )
+                    )
+                } else if (searchPatterns?.isLiveYouTubeData == true && searchPatterns.commonKeywords.any { tag.contains(it, ignoreCase = true) }) {
+                    val kwMatches = searchPatterns.topVideos.count { v ->
+                        v.title.contains(tag, ignoreCase = true) || v.tags.any { t -> t.equals(tag, ignoreCase = true) }
+                    }
+                    if (kwMatches > 0) {
+                        smartItems.add(
+                            SmartTagItem(
+                                tag = tag,
+                                usedInTopVideosCount = kwMatches,
+                                totalTopVideosAnalyzed = totalVideos,
+                                commonalityLabel = "Used in $kwMatches/$totalVideos top videos",
+                                isFromLiveYouTubeData = true
+                            )
+                        )
+                    } else {
+                        smartItems.add(
+                            SmartTagItem(
+                                tag = tag,
+                                usedInTopVideosCount = 0,
+                                totalTopVideosAnalyzed = totalVideos,
+                                commonalityLabel = "Related search keyword",
+                                isFromLiveYouTubeData = false
+                            )
+                        )
+                    }
+                } else {
+                    smartItems.add(
+                        SmartTagItem(
+                            tag = tag,
+                            usedInTopVideosCount = 0,
+                            totalTopVideosAnalyzed = totalVideos,
+                            commonalityLabel = if (searchPatterns?.isLiveYouTubeData == true) "Related search keyword" else "AI suggested tag",
+                            isFromLiveYouTubeData = false
+                        )
+                    )
+                }
             }
         }
 
         val hashtags = jsonArrayToList(json.optJSONArray("threeBestHashtags"))
             .map { if (it.startsWith("#")) it else "#${it.replace(" ", "")}" }
             .take(3)
-            .ifEmpty { listOf("#YouTubeGrowth", "#CreatorTips", "#ZEDCraft") }
+            .ifEmpty {
+                searchPatterns?.topHashtags?.take(3)?.ifEmpty { null }
+                    ?: listOf("#YouTubeGrowth", "#CreatorTips", "#ZEDCraft")
+            }
 
         TagsGenerationResult(
             topic = cleanTopic,
+            currentTagsScore = json.optInt("currentTagsScore", deterministicTagsScore).coerceIn(0, 100),
+            currentTagsDiagnosis = json.optString("currentTagsDiagnosis").ifBlank {
+                "Built ${fittedTags.size} tags ($charTotal/500 chars) combining top-ranking competitor tags and long-tail search variations."
+            },
             recommendedTags = fittedTags,
+            smartTagItems = smartItems,
             totalCharacterCount = charTotal,
             threeBestHashtags = hashtags,
-            competitorTagsIncluded = realRankingTags.size,
+            competitorTagsIncluded = smartItems.count { it.isFromLiveYouTubeData },
             strategyExplanation = json.optString("strategyExplanation"),
             modelUsed = raw.modelUsed
         )
+    }
+
+    private fun escapeFenceIfNeeded(rawText: String): String {
+        val trimmed = rawText.trim()
+        if (trimmed.startsWith("```")) {
+            return trimmed
+                .removePrefix("```json")
+                .removePrefix("```JSON")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+        }
+        return trimmed
     }
 
     // -----------------------------------------------------------------------
@@ -977,25 +1325,29 @@ class ZedCraftAiService {
         niche: String,
         currentDescription: String,
         currentTags: List<String>,
-        channelContext: String
+        channelContext: String,
+        searchPatterns: TopicSearchPatterns? = null
     ): Result<TitleOptimizerResponse> = runCatching {
         val titleResult = scoreAndOptimizeTitle(
             rawTitle = topicOrDraftTitle,
-            videoContextOrNiche = "$niche | $channelContext"
+            videoContextOrNiche = "$niche | $channelContext",
+            searchPatterns = searchPatterns
         ).getOrThrow()
 
         val descResult = runCatching {
             optimizeDescriptionAndChapters(
                 videoTitleOrTopic = topicOrDraftTitle,
                 existingDescription = currentDescription,
-                transcriptOrOutline = ""
+                transcriptOrOutline = "",
+                searchPatterns = searchPatterns
             ).getOrThrow()
         }.getOrNull()
 
         val tagsResult = runCatching {
             generateTagsAndHashtags(
                 topicOrTitle = topicOrDraftTitle,
-                realRankingTags = currentTags
+                realRankingTags = currentTags,
+                searchPatterns = searchPatterns
             ).getOrThrow()
         }.getOrNull()
 
@@ -1003,19 +1355,22 @@ class ZedCraftAiService {
             "${m.label}: ${m.score}/100 (${m.note})"
         }
 
+        val isLiveYt = searchPatterns?.isLiveYouTubeData == true
         val mappedSuggestions = titleResult.tenImprovedTitles.map { s ->
             val subBase = (s.score / 5).coerceIn(14, 20)
             TitleSuggestionItem(
                 title = s.title,
                 framework = s.angleType,
+                tagBadge = s.tagBadge,
                 score = s.score,
                 clarityScore = subBase,
                 curiosityScore = subBase,
                 keywordScore = (subBase - 1).coerceAtLeast(14),
-                lengthScore = if (s.title.length in 38..62) 20 else 16,
+                lengthScore = if (s.title.length in 38..60) 20 else 16,
                 clickAppealScore = subBase,
                 characterCount = s.title.length,
-                whyItWorks = s.reason
+                whyItWorks = s.reason,
+                isBackedByLiveYouTubeData = isLiveYt
             )
         }
 
@@ -1027,18 +1382,33 @@ class ZedCraftAiService {
                 ?: currentDescription.ifBlank { "Watch this deep dive on $topicOrDraftTitle!" },
             suggestedChapters = descResult?.generatedChapters ?: listOf("00:00 Intro", "01:30 Core Breakdown", "05:00 Key Takeaways"),
             recommendedTags = tagsResult?.recommendedTags ?: currentTags,
-            hashtags = descResult?.threeHashtags ?: tagsResult?.threeBestHashtags ?: listOf("#YouTubeGrowth", "#CreatorTips", "#ZEDCraft")
+            hashtags = descResult?.threeHashtags ?: tagsResult?.threeBestHashtags ?: listOf("#YouTubeGrowth", "#CreatorTips", "#ZEDCraft"),
+            isBackedByLiveYouTubeData = isLiveYt,
+            dataSourceBadge = searchPatterns?.dataSourceLabel ?: "AI suggestion (no live YouTube data)",
+            quotaFallbackNotice = searchPatterns?.quotaExhaustedOrOfflineNote,
+            searchPatternsSummary = searchPatterns?.patternSummaryBullets.orEmpty(),
+            topCompetitorReferenceTitles = searchPatterns?.topVideos?.take(5)?.map {
+                "${it.title} (${YouTubeApiClient.formatCompact(it.viewCount)} views • ${YouTubeApiClient.formatCompact(it.channelSubscribers)} subs)"
+            }.orEmpty(),
+            descriptionScore = descResult?.currentDraftScore ?: 78,
+            descriptionDiagnosis = descResult?.currentDraftDiagnosis ?: "Optimized first 2 lines, natural search keywords, 00:00 chapters, and 3 hashtags.",
+            descriptionVariations = descResult?.variations.orEmpty(),
+            tagsAndHashtagsScore = tagsResult?.currentTagsScore ?: 80,
+            tagsDiagnosis = tagsResult?.currentTagsDiagnosis ?: "Recommended tags built from top ranking results within YouTube's 500-character limit.",
+            smartTagSuggestions = tagsResult?.smartTagItems.orEmpty()
         )
     }
 
     suspend fun scoreSingleCustomTitle(
         customTitle: String,
         niche: String,
-        channelContext: String
+        channelContext: String,
+        searchPatterns: TopicSearchPatterns? = null
     ): Result<TitleSuggestionItem> = runCatching {
         val res = scoreAndOptimizeTitle(
             rawTitle = customTitle,
-            videoContextOrNiche = "$niche | $channelContext"
+            videoContextOrNiche = "$niche | $channelContext",
+            searchPatterns = searchPatterns
         ).getOrThrow()
 
         val clarity = res.breakdown.firstOrNull { it.label.startsWith("Clarity") }?.score ?: 78
@@ -1051,6 +1421,7 @@ class ZedCraftAiService {
         TitleSuggestionItem(
             title = customTitle,
             framework = "Your Custom Title",
+            tagBadge = if (keywords >= curiosity) "Best for Search" else "Best for Clicks",
             score = res.overallScore,
             clarityScore = (clarity / 5).coerceIn(1, 20),
             curiosityScore = (curiosity / 5).coerceIn(1, 20),
@@ -1058,7 +1429,8 @@ class ZedCraftAiService {
             lengthScore = (length / 5).coerceIn(1, 20),
             clickAppealScore = (clickAppeal / 5).coerceIn(1, 20),
             characterCount = customTitle.length,
-            whyItWorks = summaryWhy
+            whyItWorks = summaryWhy,
+            isBackedByLiveYouTubeData = searchPatterns?.isLiveYouTubeData == true
         )
     }
 

@@ -590,6 +590,255 @@ class YouTubeApiClient(
     }
 
     /**
+     * Pulls top-ranking and most-viewed videos for a topic/title via YouTube Data API v3
+     * (`search.list` + batched `videos.list` + batched `channels.list`), caches results locally in Room,
+     * and extracts real ranking patterns: common keywords, repeating phrases, title structures & lengths,
+     * strong opening words, number usage, small-channel outlier gaps, tag commonality, and hashtags.
+     * Falls back cleanly with `isLiveYouTubeData = false` if YouTube quota is exhausted or offline.
+     */
+    suspend fun fetchTopicSearchPatterns(
+        topicOrTitleOrUrl: String,
+        oauthAccessToken: String? = null,
+        forceRefresh: Boolean = false
+    ): TopicSearchPatterns = withContext(Dispatchers.IO) {
+        val rawInput = topicOrTitleOrUrl.trim()
+        if (rawInput.isBlank()) {
+            return@withContext TopicSearchPatterns(
+                query = "",
+                isLiveYouTubeData = false,
+                dataSourceLabel = "AI suggestion (no live YouTube data)"
+            )
+        }
+
+        // If user pasted a YouTube link or video ID, resolve its real title first
+        val maybeVideoId = extractVideoId(rawInput)
+        val resolvedSeed = if (maybeVideoId != null) {
+            runCatching {
+                fetchVideoById(maybeVideoId, oauthAccessToken, forceRefresh).getOrNull()?.title
+            }.getOrNull() ?: rawInput
+        } else {
+            rawInput
+        }
+
+        val cleanQuery = resolvedSeed
+            .replace(Regex("[\\[\\]()\"|]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .take(80)
+
+        runCatching {
+            val encoded = URLEncoder.encode(cleanQuery, "UTF-8")
+            val searchUrl = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&q=$encoded"
+            val searchJson = executeCachedGet(
+                cacheKey = "smart_patterns_${cleanQuery.lowercase()}",
+                endpoint = "search.smartPatterns",
+                url = searchUrl,
+                oauthAccessToken = oauthAccessToken,
+                ttlMs = 6 * 60 * 60 * 1000L, // 6-hour local Room cache to protect YouTube quota
+                forceRefresh = forceRefresh
+            )
+
+            val items = searchJson.optJSONArray("items") ?: JSONArray()
+            val videoIds = mutableListOf<String>()
+            for (i in 0 until items.length()) {
+                val vid = items.getJSONObject(i).optJSONObject("id")?.optString("videoId").orEmpty()
+                if (vid.isNotBlank()) videoIds.add(vid)
+            }
+            if (videoIds.isEmpty()) {
+                throw YouTubeApiException.NotFoundException("No ranking videos found for '$cleanQuery'.")
+            }
+
+            // Batched videos.list + channels.list (1 quota unit each)
+            val videosRaw = fetchVideosBatch(videoIds, oauthAccessToken, forceRefresh).getOrThrow()
+            val channelMap = fetchChannelsBatch(videosRaw.map { it.channelId }, oauthAccessToken)
+            val videos = videosRaw.map { v ->
+                v.copy(channelSubscribers = channelMap[v.channelId]?.subscriberCount ?: 0L)
+            }
+
+            val totalCount = videos.size.coerceAtLeast(1)
+            val sortedViews = videos.map { it.viewCount }.sorted()
+            val avgViews = videos.sumOf { it.viewCount } / totalCount
+            val medianViews = sortedViews[sortedViews.size / 2]
+            val maxViews = sortedViews.lastOrNull() ?: 0L
+            val avgSubs = videos.sumOf { it.channelSubscribers } / totalCount
+            val avgTitleLen = videos.map { it.title.length }.average().toInt().coerceIn(30, 90)
+            val numberCount = videos.count { it.title.contains(Regex("\\d+")) }
+
+            // Stopwords for keyword & phrase extraction
+            val stopWords = setOf(
+                "the", "and", "for", "with", "this", "that", "from", "your", "you", "how",
+                "what", "why", "when", "where", "who", "are", "was", "were", "will", "can",
+                "not", "but", "all", "new", "more", "out", "about", "into", "over", "after",
+                "video", "youtube", "official", "full", "part"
+            )
+
+            val wordCounts = mutableMapOf<String, Int>()
+            val bigramCounts = mutableMapOf<String, Int>()
+            val openingWords = mutableListOf<String>()
+
+            videos.sortedByDescending { it.viewCount }.forEach { v ->
+                val cleanWords = v.title
+                    .lowercase()
+                    .replace(Regex("[^a-z0-9\\s]"), " ")
+                    .split(Regex("\\s+"))
+                    .filter { it.length >= 3 }
+
+                val rawTokens = v.title.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+                if (rawTokens.isNotEmpty()) {
+                    val opener = rawTokens.take(2).joinToString(" ").trim(',', ':', '-', '|')
+                    if (opener.length >= 3) {
+                        openingWords.add(opener)
+                    }
+                }
+
+                cleanWords.distinct().forEach { w ->
+                    if (w !in stopWords) {
+                        wordCounts[w] = (wordCounts[w] ?: 0) + 1
+                    }
+                }
+
+                for (i in 0 until cleanWords.size - 1) {
+                    val w1 = cleanWords[i]
+                    val w2 = cleanWords[i + 1]
+                    if (w1 !in stopWords || w2 !in stopWords) {
+                        val bg = "$w1 $w2"
+                        if (bg.length >= 7) {
+                            bigramCounts[bg] = (bigramCounts[bg] ?: 0) + 1
+                        }
+                    }
+                }
+            }
+
+            val commonKeywords = wordCounts.entries
+                .sortedByDescending { it.value }
+                .map { it.key }
+                .take(10)
+
+            val repeatingPhrases = bigramCounts.entries
+                .filter { it.value >= 2 }
+                .sortedByDescending { it.value }
+                .map { "${it.key} (${it.value}/${videos.size} videos)" }
+                .take(6)
+
+            val strongOpeners = openingWords.distinct().take(6)
+
+            // Small-channel outlier gaps (where smaller channels rank in top results or get >2x views vs subs)
+            val outlierGaps = videos
+                .filter { v ->
+                    (v.channelSubscribers in 1..100_000L && v.viewCount >= medianViews) ||
+                        (v.channelSubscribers > 0L && v.viewCount > v.channelSubscribers * 2)
+                }
+                .sortedByDescending { it.outlierMultiplier }
+                .take(4)
+                .map { v ->
+                    "\"${v.title}\" — ${formatCompact(v.viewCount)} views on a ${formatCompact(v.channelSubscribers)}-sub channel (${String.format(Locale.US, "%.1fx", v.outlierMultiplier)} subs)"
+                }
+
+            // Tag frequency across top videos (counting how many distinct top videos use each tag)
+            val tagVideoCountMap = mutableMapOf<String, Int>()
+            val tagDisplayMap = mutableMapOf<String, String>()
+            videos.forEach { v ->
+                val uniqueTagsInVideo = v.tags.map { it.trim() }.filter { it.length in 3..48 }.distinctBy { it.lowercase() }
+                uniqueTagsInVideo.forEach { rawTag ->
+                    val key = rawTag.lowercase()
+                    tagVideoCountMap[key] = (tagVideoCountMap[key] ?: 0) + 1
+                    if (!tagDisplayMap.containsKey(key)) {
+                        tagDisplayMap[key] = rawTag
+                    }
+                }
+            }
+
+            val rankedCompetitorTags = tagVideoCountMap.entries
+                .sortedByDescending { it.value }
+                .take(18)
+                .map { entry ->
+                    CompetitorTagFrequency(
+                        tag = tagDisplayMap[entry.key] ?: entry.key,
+                        usedInTopCount = entry.value,
+                        totalVideosAnalyzed = videos.size,
+                        isFromLiveSearch = true
+                    )
+                }
+
+            val autocompleteTags = fetchYouTubeAutocompleteSuggestions(cleanQuery)
+                .map { it.trim() }
+                .filter { s -> s.isNotBlank() && rankedCompetitorTags.none { it.tag.equals(s, ignoreCase = true) } }
+                .take(6)
+                .map { s ->
+                    CompetitorTagFrequency(
+                        tag = s,
+                        usedInTopCount = 0,
+                        totalVideosAnalyzed = videos.size,
+                        isFromLiveSearch = false
+                    )
+                }
+
+            val combinedTagFrequencies = (rankedCompetitorTags + autocompleteTags).take(22)
+
+            // Extract top hashtags from descriptions
+            val hashtagCounts = mutableMapOf<String, Int>()
+            videos.forEach { v ->
+                v.hashtags.map { it.lowercase() }.distinct().forEach { h ->
+                    hashtagCounts[h] = (hashtagCounts[h] ?: 0) + 1
+                }
+            }
+            val topHashtags = hashtagCounts.entries
+                .sortedByDescending { it.value }
+                .map { it.key }
+                .take(5)
+
+            val summaryBullets = buildList {
+                add("Top ${videos.size} ranking videos average ${formatCompact(avgViews)} views (median ${formatCompact(medianViews)}, max ${formatCompact(maxViews)}).")
+                add("Winning title length averages $avgTitleLen characters; $numberCount of ${videos.size} top videos use numbers or years.")
+                if (commonKeywords.isNotEmpty()) {
+                    add("Core ranking keywords: ${commonKeywords.take(6).joinToString(", ")}.")
+                }
+                if (repeatingPhrases.isNotEmpty()) {
+                    add("Repeating phrases in top results: ${repeatingPhrases.take(3).joinToString(" • ")}.")
+                }
+                if (outlierGaps.isNotEmpty()) {
+                    add("Small-channel breakout gap: ${outlierGaps.first()}")
+                }
+            }
+
+            TopicSearchPatterns(
+                query = cleanQuery,
+                isLiveYouTubeData = true,
+                dataSourceLabel = "Backed by Live YouTube Search Data (${videos.size} Top Videos)",
+                quotaExhaustedOrOfflineNote = null,
+                topVideos = videos,
+                avgViews = avgViews,
+                medianViews = medianViews,
+                maxViews = maxViews,
+                avgChannelSubscribers = avgSubs,
+                avgTitleLength = avgTitleLen,
+                numberUsageCount = numberCount,
+                totalVideosAnalyzed = videos.size,
+                commonKeywords = commonKeywords,
+                repeatingPhrases = repeatingPhrases,
+                strongOpeningWords = strongOpeners,
+                smallChannelOutlierGaps = outlierGaps,
+                tagFrequencies = combinedTagFrequencies,
+                topHashtags = topHashtags,
+                patternSummaryBullets = summaryBullets
+            )
+        }.getOrElse { err ->
+            val note = when (err) {
+                is YouTubeApiException.QuotaExceededException ->
+                    "YouTube Data API v3 daily quota is exhausted — falling back to AI suggestion (no live YouTube data)."
+                else ->
+                    "Live YouTube search data unavailable (${err.localizedMessage ?: "offline"}) — showing AI suggestion (no live YouTube data)."
+            }
+            TopicSearchPatterns(
+                query = cleanQuery,
+                isLiveYouTubeData = false,
+                dataSourceLabel = "AI suggestion (no live YouTube data)",
+                quotaExhaustedOrOfflineNote = note
+            )
+        }
+    }
+
+    /**
      * Fetches public YouTube search autocomplete suggestions for a seed keyword.
      */
     suspend fun fetchYouTubeAutocompleteSuggestions(seed: String): List<String> = withContext(Dispatchers.IO) {
