@@ -2,6 +2,7 @@ package com.example.ai
 
 import android.graphics.Bitmap
 import android.util.Log
+import com.example.BuildConfig
 import com.example.data.remote.ChannelHealthReport
 import com.example.data.remote.TopicSearchPatterns
 import com.example.data.remote.YouTubeApiClient
@@ -10,89 +11,214 @@ import com.example.data.remote.YtChannelDetail
 import com.example.data.remote.YtCommentItem
 import com.example.data.remote.YtVideoDetail
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.GenerationConfig
 import com.google.firebase.ai.type.Schema
-import com.google.firebase.ai.type.ThinkingLevel
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
-import com.google.firebase.ai.type.thinkingConfig
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.json.JSONArray
-import org.json.JSONObject
-
-import com.example.BuildConfig
-import java.io.ByteArrayOutputStream
-import java.util.concurrent.TimeUnit
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.json.JSONArray
+import org.json.JSONObject
 
 private const val TAG = "ZedCraftAiService"
-private const val AI_TIMEOUT_MS = 45_000L
+private const val AI_TIMEOUT_MS = 20_000L
 const val FRIENDLY_ZD_ERROR = "ZD is having trouble connecting. Please try again."
 
-class ZedCraftAiService {
+class ZdAiException(
+    val userMessage: String,
+    val isConfigError: Boolean = false,
+    cause: Throwable? = null
+) : Exception(userMessage, cause)
 
-    private val directHttpClient: OkHttpClient by lazy {
+private suspend inline fun <T> runAiCatching(block: () -> T): Result<T> {
+    return try {
+        Result.success(block())
+    } catch (ce: CancellationException) {
+        if (ce is TimeoutCancellationException) {
+            Result.failure(ZdAiException("ZD AI timed out waiting for a reply. Please tap Retry.", cause = ce))
+        } else {
+            throw ce
+        }
+    } catch (t: Throwable) {
+        Result.failure(t)
+    }
+}
+
+private suspend fun Call.executeCancellable(): Response = suspendCancellableCoroutine { cont ->
+    cont.invokeOnCancellation {
+        runCatching { cancel() }
+    }
+    enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            if (cont.isActive) cont.resumeWithException(e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            if (cont.isActive) {
+                cont.resume(response)
+            } else {
+                response.close()
+            }
+        }
+    })
+}
+
+class ZedCraftAiService(
+    private val apiKeyProvider: () -> String? = { runCatching { BuildConfig.GEMINI_API_KEY }.getOrNull() }
+) {
+
+    // Short-timeout client for structured/JSON single-turn calls
+    private val directJsonClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
-            .callTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(25, TimeUnit.SECONDS)
             .build()
     }
 
-    private fun getDirectGeminiApiKey(): String? {
-        val key = runCatching { BuildConfig.GEMINI_API_KEY.trim() }.getOrNull()
+    // Streaming SSE client: short connect timeout, per-chunk readTimeout, generous total callTimeout so long answers never abort at 15s
+    private val directStreamClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(90, TimeUnit.SECONDS)
+            .build()
+    }
+
+    fun hasValidDirectApiKey(): Boolean = getDirectGeminiApiKey() != null
+
+    internal fun getDirectGeminiApiKey(): String? {
+        val key = runCatching { apiKeyProvider()?.trim() }.getOrNull()
         return if (!key.isNullOrBlank() && !key.startsWith("YOUR_") && key != "null") key else null
+    }
+
+    private fun mapHttpFailure(code: Int, body: String): ZdAiException {
+        val apiMsg = runCatching {
+            JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()
+        }.getOrDefault("")
+        return when (code) {
+            401, 403 -> ZdAiException(
+                userMessage = "Gemini API key was rejected (HTTP $code). Verify GEMINI_API_KEY in AI Studio Secrets.",
+                isConfigError = true
+            )
+            400 -> if (apiMsg.contains("API key", ignoreCase = true)) {
+                ZdAiException(
+                    userMessage = "Gemini API key appears invalid. Check GEMINI_API_KEY in AI Studio Secrets.",
+                    isConfigError = true
+                )
+            } else {
+                ZdAiException("ZD could not process that request right now. Please tap Retry.")
+            }
+            429 -> ZdAiException("AI rate limit reached right now. Wait a few seconds and tap Retry.")
+            503, 502, 504 -> ZdAiException("AI servers are temporarily busy. Please tap Retry.")
+            else -> ZdAiException(FRIENDLY_ZD_ERROR)
+        }
+    }
+
+    private fun mapNetworkFailure(e: Exception): ZdAiException {
+        return when (e) {
+            is ZdAiException -> e
+            is UnknownHostException, is ConnectException -> ZdAiException(
+                "No internet connection or AI service unreachable. Check your connection and tap Retry.",
+                cause = e
+            )
+            is SocketTimeoutException -> ZdAiException(
+                "ZD AI took too long to respond. Please tap Retry.",
+                cause = e
+            )
+            else -> ZdAiException(FRIENDLY_ZD_ERROR, cause = e)
+        }
+    }
+
+    private fun buildContentsJsonArray(
+        promptText: String,
+        bitmap: Bitmap? = null,
+        chatHistory: List<Pair<String, String>> = emptyList()
+    ): JSONArray {
+        val contentsArr = JSONArray()
+        // Include valid prior turns as native Gemini user/model alternating context
+        chatHistory
+            .filter { it.second.isNotBlank() }
+            .takeLast(8)
+            .forEach { (role, msg) ->
+                val geminiRole = if (role.equals("user", ignoreCase = true)) "user" else "model"
+                contentsArr.put(
+                    JSONObject()
+                        .put("role", geminiRole)
+                        .put("parts", JSONArray().put(JSONObject().put("text", msg.take(1200))))
+                )
+            }
+
+        val userParts = JSONArray()
+        if (bitmap != null) {
+            val out = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+            val inlineData = JSONObject()
+                .put("mimeType", "image/jpeg")
+                .put("data", base64)
+            userParts.put(JSONObject().put("inlineData", inlineData))
+        }
+        userParts.put(JSONObject().put("text", promptText))
+        contentsArr.put(
+            JSONObject()
+                .put("role", "user")
+                .put("parts", userParts)
+        )
+        return contentsArr
     }
 
     /**
      * Direct call to Google AI Studio Gemini REST API using the user's GEMINI_API_KEY.
-     * Prioritizes `gemini-3.5-flash-lite` (~0.6s response) with fast automatic failover.
+     * Prioritizes verified fast models (~0.6s response) with automatic failover and clear error classification.
      */
     private suspend fun callDirectGoogleAiStudioApi(
         systemInstructionText: String,
         promptText: String,
         bitmap: Bitmap? = null,
-        responseMimeType: String? = null
-    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val apiKey = getDirectGeminiApiKey() ?: return@withContext null
-        val modelsToTry = listOf(
-            "gemini-3.5-flash-lite",
-            "gemini-flash-lite-latest",
-            "gemini-3.1-flash-lite",
-            "gemini-3.5-flash",
-            "gemini-3.6-flash"
-        )
-        
-        for (model in modelsToTry) {
+        responseMimeType: String? = null,
+        chatHistory: List<Pair<String, String>> = emptyList()
+    ): String = withContext(Dispatchers.IO) {
+        val apiKey = getDirectGeminiApiKey()
+            ?: throw ZdAiException(
+                userMessage = "Gemini API key is missing. Configure GEMINI_API_KEY in AI Studio Secrets.",
+                isConfigError = true
+            )
+
+        var lastFailure: ZdAiException? = null
+        val contentsArr = buildContentsJsonArray(promptText, bitmap, chatHistory)
+
+        for (model in ZedCraftAiConfig.DIRECT_MODEL_CHAIN) {
+            coroutineContext.ensureActive()
             try {
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
-
-                val contentsArr = JSONArray()
-                val userContent = JSONObject().put("role", "user")
-                val partsArr = JSONArray()
-
-                if (bitmap != null) {
-                    val out = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
-                    val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
-                    val inlineData = JSONObject()
-                        .put("mimeType", "image/jpeg")
-                        .put("data", base64)
-                    partsArr.put(JSONObject().put("inlineData", inlineData))
-                }
-
-                partsArr.put(JSONObject().put("text", promptText))
-                userContent.put("parts", partsArr)
-                contentsArr.put(userContent)
-
                 val payload = JSONObject().apply {
                     put("contents", contentsArr)
                     if (systemInstructionText.isNotBlank()) {
@@ -112,12 +238,9 @@ class ZedCraftAiService {
                 }
 
                 val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-                val request = Request.Builder()
-                    .url(url)
-                    .post(body)
-                    .build()
+                val request = Request.Builder().url(url).post(body).build()
 
-                directHttpClient.newCall(request).execute().use { response ->
+                directJsonClient.newCall(request).executeCancellable().use { response ->
                     val respStr = response.body?.string().orEmpty()
                     if (response.isSuccessful && respStr.isNotBlank()) {
                         val root = JSONObject(respStr)
@@ -127,18 +250,31 @@ class ZedCraftAiService {
                         val parts = contentObj?.optJSONArray("parts")
                         val candidateText = parts?.optJSONObject(0)?.optString("text").orEmpty().trim()
                         if (candidateText.isNotBlank()) {
-                            Log.i(TAG, "Direct Google AI Studio API call succeeded using $model!")
+                            Log.i(TAG, "Direct Google AI Studio API succeeded using $model")
                             return@withContext candidateText
                         }
                     } else {
-                        Log.w(TAG, "Direct Google AI Studio model $model returned HTTP ${response.code}: $respStr")
+                        Log.w(TAG, "Direct model $model returned HTTP ${response.code}")
+                        val mapped = mapHttpFailure(response.code, respStr)
+                        if (mapped.isConfigError) throw mapped
+                        lastFailure = mapped
                     }
                 }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (zd: ZdAiException) {
+                if (zd.isConfigError) throw zd
+                lastFailure = zd
             } catch (e: Exception) {
                 Log.w(TAG, "Exception calling direct model $model: ${e.message}")
+                val mapped = mapNetworkFailure(e)
+                lastFailure = mapped
+                if (e is UnknownHostException || e is ConnectException) {
+                    throw mapped
+                }
             }
         }
-        null
+        throw lastFailure ?: ZdAiException(FRIENDLY_ZD_ERROR)
     }
 
     private data class RawModelResult(
@@ -147,33 +283,53 @@ class ZedCraftAiService {
         val fallbackNotice: String?
     )
 
+    private fun isFirebaseInitialized(): Boolean {
+        return runCatching {
+            FirebaseApp.getInstance()
+            true
+        }.getOrDefault(false)
+    }
+
     /**
-     * Executes a prompt on ZD_MAIN_MODEL:
-     * 1. Tries ZD_MAIN_MODEL.
-     * 2. If it fails, retries ZD_MAIN_MODEL once.
-     * 3. If it fails again, falls back to FAST_MODEL (gemini-3.8-flash) with retry.
-     * Technical details are logged to Logcat only; user-facing errors always use FRIENDLY_ZD_ERROR.
+     * Executes a prompt on direct Google AI Studio first, then falls back to Firebase AI Logic if initialized.
+     * Preserves real error causes (`ZdAiException`) so users never see generic confusion.
      */
     private suspend fun executeMainModelWithFallback(
         systemInstructionText: String,
         responseSchema: Schema? = null,
-        promptContent: Content
+        promptContent: Content,
+        chatHistory: List<Pair<String, String>> = emptyList()
     ): RawModelResult {
-        // Fast-path: If user provided Google AI Studio GEMINI_API_KEY, use it first to guarantee instant response!
         val promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text }
         val bitmap = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.ImagePart>().firstOrNull()?.image
-        val directResult = callDirectGoogleAiStudioApi(
-            systemInstructionText = systemInstructionText,
-            promptText = promptText,
-            bitmap = bitmap,
-            responseMimeType = if (responseSchema != null) "application/json" else null
-        )
-        if (!directResult.isNullOrBlank()) {
-            return RawModelResult(
-                text = directResult,
-                modelUsed = "ZD AI (Direct Studio)",
-                fallbackNotice = null
+
+        var directFailure: ZdAiException? = null
+        try {
+            val directResult = callDirectGoogleAiStudioApi(
+                systemInstructionText = systemInstructionText,
+                promptText = promptText,
+                bitmap = bitmap,
+                responseMimeType = if (responseSchema != null) "application/json" else null,
+                chatHistory = chatHistory
             )
+            if (directResult.isNotBlank()) {
+                return RawModelResult(
+                    text = directResult,
+                    modelUsed = "ZD AI (Direct Studio)",
+                    fallbackNotice = null
+                )
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (zd: ZdAiException) {
+            directFailure = zd
+            if (zd.isConfigError && !isFirebaseInitialized()) {
+                throw zd
+            }
+        }
+
+        if (!isFirebaseInitialized()) {
+            throw directFailure ?: ZdAiException(FRIENDLY_ZD_ERROR)
         }
 
         val mainConfig: GenerationConfig = generationConfig {
@@ -183,16 +339,17 @@ class ZedCraftAiService {
             }
         }
 
-        // Attempt 1 & Retry 1 on ZD_MAIN_MODEL
-        for (attempt in 1..2) {
+        var lastException: Exception? = directFailure
+        for (modelName in listOf(ZedCraftAiConfig.ZD_MAIN_MODEL, ZedCraftAiConfig.LITE_MODEL).distinct()) {
+            coroutineContext.ensureActive()
             try {
-                val mainModel = Firebase.ai.generativeModel(
-                    modelName = ZedCraftAiConfig.ZD_MAIN_MODEL,
+                val model = Firebase.ai.generativeModel(
+                    modelName = modelName,
                     generationConfig = mainConfig,
                     systemInstruction = content { text(systemInstructionText) }
                 )
                 val response = withTimeout(AI_TIMEOUT_MS) {
-                    mainModel.generateContent(promptContent)
+                    model.generateContent(promptContent)
                 }
                 val text = response.text?.trim().orEmpty()
                 if (text.isNotBlank()) {
@@ -204,83 +361,54 @@ class ZedCraftAiService {
                 }
             } catch (e: CancellationException) {
                 if (e !is TimeoutCancellationException) throw e
-                Log.w(TAG, "Main model timed out on attempt $attempt", e)
-            } catch (e: Exception) {
-                Log.w(TAG, "Main model failed on attempt $attempt: ${e.message}", e)
-            }
-            if (attempt == 1) {
-                delay(500L)
-            }
-        }
-
-        // Fallback to gemini-3.8-flash (FAST_MODEL) with retry
-        val fastConfig: GenerationConfig = generationConfig {
-            if (responseSchema != null) {
-                responseMimeType = "application/json"
-                this.responseSchema = responseSchema
-            }
-        }
-
-        var lastException: Exception? = null
-        for (fallbackAttempt in 1..2) {
-            try {
-                val fastModel = Firebase.ai.generativeModel(
-                    modelName = ZedCraftAiConfig.FAST_MODEL,
-                    generationConfig = fastConfig,
-                    systemInstruction = content { text(systemInstructionText) }
-                )
-                val fallbackResp = withTimeout(AI_TIMEOUT_MS) {
-                    fastModel.generateContent(promptContent)
-                }
-                val fallbackText = fallbackResp.text?.trim().orEmpty()
-                if (fallbackText.isNotBlank()) {
-                    return RawModelResult(
-                        text = fallbackText,
-                        modelUsed = "ZD AI",
-                        fallbackNotice = null
-                    )
-                }
-            } catch (e: CancellationException) {
-                if (e !is TimeoutCancellationException) throw e
                 lastException = e
-                Log.e(TAG, "Fallback model (${ZedCraftAiConfig.FAST_MODEL}) timed out on attempt $fallbackAttempt", e)
+                Log.w(TAG, "Firebase AI model ($modelName) timed out", e)
             } catch (e: Exception) {
                 lastException = e
-                Log.e(TAG, "Fallback model (${ZedCraftAiConfig.FAST_MODEL}) failed on attempt $fallbackAttempt: ${e.message}", e)
-            }
-            if (fallbackAttempt == 1) {
-                delay(500L)
+                Log.w(TAG, "Firebase AI model ($modelName) failed: ${e.message}", e)
             }
         }
 
-        Log.e(TAG, "All ZD AI attempts and gemini-3.8-flash fallbacks failed", lastException)
-        throw IllegalStateException(FRIENDLY_ZD_ERROR)
+        Log.e(TAG, "All ZD AI attempts failed", lastException)
+        throw directFailure ?: ZdAiException(FRIENDLY_ZD_ERROR, cause = lastException)
     }
 
     /**
-     * Executes a fast tool request on FAST_MODEL (gemini-3.8-flash) with automatic retry once,
-     * and LITE_MODEL fallback if needed. Technical errors stay in Logcat only.
+     * Executes a fast tool request on direct Google AI Studio first, with Firebase AI fallback if initialized.
      */
     private suspend fun executeFastModel(
         systemInstructionText: String,
         responseSchema: Schema,
         promptContent: Content
     ): RawModelResult {
-        // Fast-path: If user provided Google AI Studio GEMINI_API_KEY, use it first!
         val promptText = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.TextPart>().joinToString("\n") { it.text }
         val bitmap = promptContent.parts.filterIsInstance<com.google.firebase.ai.type.ImagePart>().firstOrNull()?.image
-        val directResult = callDirectGoogleAiStudioApi(
-            systemInstructionText = systemInstructionText,
-            promptText = promptText,
-            bitmap = bitmap,
-            responseMimeType = "application/json"
-        )
-        if (!directResult.isNullOrBlank()) {
-            return RawModelResult(
-                text = directResult,
-                modelUsed = "ZD AI (Direct Studio)",
-                fallbackNotice = null
+        var directFailure: ZdAiException? = null
+        try {
+            val directResult = callDirectGoogleAiStudioApi(
+                systemInstructionText = systemInstructionText,
+                promptText = promptText,
+                bitmap = bitmap,
+                responseMimeType = "application/json"
             )
+            if (directResult.isNotBlank()) {
+                return RawModelResult(
+                    text = directResult,
+                    modelUsed = "ZD AI (Direct Studio)",
+                    fallbackNotice = null
+                )
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (zd: ZdAiException) {
+            directFailure = zd
+            if (zd.isConfigError && !isFirebaseInitialized()) {
+                throw zd
+            }
+        }
+
+        if (!isFirebaseInitialized()) {
+            throw directFailure ?: ZdAiException(FRIENDLY_ZD_ERROR)
         }
 
         val config = generationConfig {
@@ -288,11 +416,12 @@ class ZedCraftAiService {
             this.responseSchema = responseSchema
         }
 
-        var lastError: Exception? = null
-        for (attempt in 1..2) {
+        var lastError: Exception? = directFailure
+        for (modelName in listOf(ZedCraftAiConfig.FAST_MODEL, ZedCraftAiConfig.LITE_MODEL).distinct()) {
+            coroutineContext.ensureActive()
             try {
                 val model = Firebase.ai.generativeModel(
-                    modelName = ZedCraftAiConfig.FAST_MODEL,
+                    modelName = modelName,
                     generationConfig = config,
                     systemInstruction = content { text(systemInstructionText) }
                 )
@@ -310,43 +439,15 @@ class ZedCraftAiService {
             } catch (e: CancellationException) {
                 if (e !is TimeoutCancellationException) throw e
                 lastError = e
-                Log.w(TAG, "Fast model timed out on attempt $attempt", e)
+                Log.w(TAG, "Firebase AI fast model ($modelName) timed out", e)
             } catch (e: Exception) {
                 lastError = e
-                Log.w(TAG, "Fast model failed on attempt $attempt: ${e.message}", e)
+                Log.w(TAG, "Firebase AI fast model ($modelName) failed: ${e.message}", e)
             }
-            if (attempt == 1) {
-                delay(500L)
-            }
-        }
-
-        // Secondary fallback to LITE_MODEL
-        try {
-            val liteModel = Firebase.ai.generativeModel(
-                modelName = ZedCraftAiConfig.LITE_MODEL,
-                generationConfig = config,
-                systemInstruction = content { text(systemInstructionText) }
-            )
-            val response = withTimeout(AI_TIMEOUT_MS) {
-                liteModel.generateContent(promptContent)
-            }
-            val text = response.text?.trim().orEmpty()
-            if (text.isNotBlank()) {
-                return RawModelResult(
-                    text = text,
-                    modelUsed = "ZD AI",
-                    fallbackNotice = null
-                )
-            }
-        } catch (e: CancellationException) {
-            if (e !is TimeoutCancellationException) throw e
-            Log.e(TAG, "Lite model fallback timed out", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Lite model fallback failed: ${e.message}", e)
         }
 
         Log.e(TAG, "Fast tool AI call failed after retries", lastError)
-        throw IllegalStateException(FRIENDLY_ZD_ERROR)
+        throw directFailure ?: ZdAiException(FRIENDLY_ZD_ERROR, cause = lastError)
     }
 
     // -----------------------------------------------------------------------
@@ -1481,7 +1582,7 @@ class ZedCraftAiService {
         targetDurationMinutes: Int,
         tone: String,
         channelContext: String
-    ): Result<String> = runCatching {
+    ): Result<String> = runAiCatching {
         val prompt = """
             Write a high-retention YouTube video script & hook blueprint for:
             - Topic / Title: "$topic"
@@ -1506,7 +1607,7 @@ class ZedCraftAiService {
     suspend fun generateShortsRepurposePlan(
         videoTitle: String,
         videoDescriptionOrTranscript: String
-    ): Result<String> = runCatching {
+    ): Result<String> = runAiCatching {
         val prompt = """
             Create 3 high-retention vertical YouTube Shorts (<60s each) repurposed from this video:
             - Source Video: "$videoTitle"
@@ -1531,7 +1632,7 @@ class ZedCraftAiService {
     suspend fun analyzeCommentsAndAudienceSentiment(
         videoTitle: String,
         comments: List<YtCommentItem>
-    ): Result<String> = runCatching {
+    ): Result<String> = runAiCatching {
         val sample = comments.take(35).joinToString("\n") { "- ${it.authorName} (${it.likeCount} likes): ${it.textDisplay.take(180)}" }
         val prompt = """
             Analyze these real viewer comments on the YouTube video "$videoTitle":
@@ -1555,27 +1656,23 @@ class ZedCraftAiService {
     private suspend fun streamDirectGoogleAiStudioApi(
         systemInstructionText: String,
         promptText: String,
+        chatHistory: List<Pair<String, String>> = emptyList(),
         onStreamingUpdate: (String) -> Unit
-    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val apiKey = getDirectGeminiApiKey() ?: return@withContext null
-        val modelsToTry = listOf(
-            "gemini-3.5-flash-lite",
-            "gemini-flash-lite-latest",
-            "gemini-3.1-flash-lite",
-            "gemini-3.5-flash",
-            "gemini-3.6-flash"
-        )
+    ): String = withContext(Dispatchers.IO) {
+        val apiKey = getDirectGeminiApiKey()
+            ?: throw ZdAiException(
+                userMessage = "Gemini API key is missing. Configure GEMINI_API_KEY in AI Studio Secrets.",
+                isConfigError = true
+            )
 
-        for (model in modelsToTry) {
+        var lastFailure: ZdAiException? = null
+        val contentsArr = buildContentsJsonArray(promptText, bitmap = null, chatHistory = chatHistory)
+
+        for (model in ZedCraftAiConfig.DIRECT_MODEL_CHAIN) {
+            coroutineContext.ensureActive()
+            val accumulated = StringBuilder()
             try {
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$apiKey"
-
-                val contentsArr = JSONArray().put(
-                    JSONObject()
-                        .put("role", "user")
-                        .put("parts", JSONArray().put(JSONObject().put("text", promptText)))
-                )
-
                 val payload = JSONObject().apply {
                     put("contents", contentsArr)
                     if (systemInstructionText.isNotBlank()) {
@@ -1590,19 +1687,20 @@ class ZedCraftAiService {
                 }
 
                 val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-                val request = Request.Builder()
-                    .url(url)
-                    .post(body)
-                    .build()
+                val request = Request.Builder().url(url).post(body).build()
 
-                val accumulated = StringBuilder()
-                directHttpClient.newCall(request).execute().use { response ->
+                directStreamClient.newCall(request).executeCancellable().use { response ->
                     if (!response.isSuccessful) {
+                        val errBody = runCatching { response.body?.string().orEmpty() }.getOrDefault("")
                         Log.w(TAG, "Direct SSE stream $model returned HTTP ${response.code}")
+                        val mapped = mapHttpFailure(response.code, errBody)
+                        if (mapped.isConfigError) throw mapped
+                        lastFailure = mapped
                         return@use
                     }
                     val reader = response.body?.charStream()?.buffered() ?: return@use
                     reader.forEachLine { line ->
+                        coroutineContext.ensureActive()
                         val trimmed = line.trim()
                         if (trimmed.startsWith("data:")) {
                             val jsonStr = trimmed.removePrefix("data:").trim()
@@ -1628,13 +1726,30 @@ class ZedCraftAiService {
 
                 val finalResult = accumulated.toString().trim()
                 if (finalResult.isNotBlank()) {
+                    Log.i(TAG, "Direct SSE stream succeeded using $model (${finalResult.length} chars)")
                     return@withContext finalResult
                 }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (zd: ZdAiException) {
+                if (zd.isConfigError) throw zd
+                lastFailure = zd
             } catch (e: Exception) {
+                // If stream already delivered meaningful content before socket drop, keep it rather than throwing it away
+                val partial = accumulated.toString().trim()
+                if (partial.length >= 40) {
+                    Log.w(TAG, "SSE stream ended early on $model with ${partial.length} chars preserved: ${e.message}")
+                    return@withContext partial
+                }
                 Log.w(TAG, "Exception streaming direct model $model: ${e.message}")
+                val mapped = mapNetworkFailure(e)
+                lastFailure = mapped
+                if (e is UnknownHostException || e is ConnectException) {
+                    throw mapped
+                }
             }
         }
-        null
+        throw lastFailure ?: ZdAiException(FRIENDLY_ZD_ERROR)
     }
 
     suspend fun askZdAssistant(
@@ -1642,41 +1757,61 @@ class ZedCraftAiService {
         channelContext: String,
         chatHistory: List<Pair<String, String>>,
         onStreamingUpdate: ((String) -> Unit)? = null
-    ): Result<String> = runCatching {
+    ): Result<String> = runAiCatching {
         val systemText = buildString {
             appendLine(ZedCraftAiConfig.ZD_SYSTEM_INSTRUCTION)
             appendLine()
             appendLine("=== CONNECTED CHANNEL CONTEXT ===")
             appendLine(channelContext)
         }
-        val conversationText = buildString {
-            if (chatHistory.isNotEmpty()) {
-                appendLine("Recent Conversation History:")
-                chatHistory.takeLast(6).forEach { (role, msg) ->
-                    appendLine("${role.uppercase()}: ${msg.take(600)}")
-                }
-                appendLine()
-            }
-            appendLine("User Request: $userPrompt")
-        }
 
         if (onStreamingUpdate != null) {
-            val streamed = streamDirectGoogleAiStudioApi(
-                systemInstructionText = systemText,
-                promptText = conversationText,
-                onStreamingUpdate = onStreamingUpdate
-            )
-            if (!streamed.isNullOrBlank()) {
-                return@runCatching streamed
+            var streamFailure: ZdAiException? = null
+            try {
+                val streamed = streamDirectGoogleAiStudioApi(
+                    systemInstructionText = systemText,
+                    promptText = userPrompt,
+                    chatHistory = chatHistory,
+                    onStreamingUpdate = onStreamingUpdate
+                )
+                if (streamed.isNotBlank()) {
+                    return@runAiCatching streamed
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (zd: ZdAiException) {
+                streamFailure = zd
+                if (zd.isConfigError && !isFirebaseInitialized()) {
+                    throw zd
+                }
+                if (zd.cause is UnknownHostException || zd.cause is ConnectException) {
+                    throw zd
+                }
+            }
+
+            // Fallback to non-streaming call (direct JSON / Firebase AI) if SSE stream had an issue
+            try {
+                val raw = executeMainModelWithFallback(
+                    systemInstructionText = systemText,
+                    responseSchema = null,
+                    promptContent = content { text(userPrompt) },
+                    chatHistory = chatHistory
+                )
+                onStreamingUpdate.invoke(raw.text)
+                return@runAiCatching raw.text
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (fallbackErr: Exception) {
+                throw streamFailure ?: fallbackErr
             }
         }
 
         val raw = executeMainModelWithFallback(
             systemInstructionText = systemText,
             responseSchema = null,
-            promptContent = content { text(conversationText) }
+            promptContent = content { text(userPrompt) },
+            chatHistory = chatHistory
         )
-        onStreamingUpdate?.invoke(raw.text)
         raw.text
     }
 
@@ -1689,5 +1824,18 @@ class ZedCraftAiService {
 
     companion object {
         const val FRIENDLY_ZD_ERROR = "ZD is having trouble connecting. Please try again."
+
+        fun extractFriendlyError(throwable: Throwable?): String {
+            return when (throwable) {
+                is ZdAiException -> throwable.userMessage
+                is UnknownHostException, is ConnectException ->
+                    "No internet connection or AI service unreachable. Check your connection and tap Retry."
+                is SocketTimeoutException, is TimeoutCancellationException ->
+                    "ZD AI timed out waiting for a reply. Please tap Retry."
+                else -> throwable?.localizedMessage
+                    ?.takeIf { it.isNotBlank() && !it.contains("Exception", ignoreCase = true) && it.length <= 160 }
+                    ?: FRIENDLY_ZD_ERROR
+            }
+        }
     }
 }

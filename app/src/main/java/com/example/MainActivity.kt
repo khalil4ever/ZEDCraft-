@@ -41,6 +41,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -99,6 +101,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -140,6 +143,7 @@ import com.example.ui.theme.ZedEmeraldSuccess
 import com.example.ui.theme.ZedGlassSurface
 import com.example.ui.theme.ZedPurpleAccent
 import com.example.ui.theme.ZedTextMuted
+import com.example.ui.theme.ZedTextPrimary
 import com.example.ui.theme.ZedTextSecondary
 import com.example.ui.viewmodel.DetailDestination
 import com.example.ui.viewmodel.PrimaryTab
@@ -217,6 +221,7 @@ fun ZedCraftAppShell(
     val isExpandedScreen = configuration.screenWidthDp >= 720
     val safeTopInset = rememberSafeTopInset()
     val safeBottomInset = rememberSafeBottomInset()
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     // Helper to trigger APK installation or request unknown app sources permission
     val triggerInstallApk: (File) -> Unit = { apkFile ->
@@ -308,7 +313,8 @@ fun ZedCraftAppShell(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(ZedDarkBackground)
-                    .padding(bottom = safeBottomInset)
+                    .imePadding()
+                    .padding(bottom = if (imeVisible) 0.dp else safeBottomInset)
             ) {
                 FixedAppHeader(
                     title = "Connect YouTube Channel",
@@ -358,6 +364,7 @@ fun ZedCraftAppShell(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
+                        .imePadding()
                 ) {
                     val headerTitle = uiState.activeDetailScreen?.title ?: when (uiState.selectedTab) {
                         PrimaryTab.Home -> "ZEDCraft"
@@ -457,8 +464,8 @@ fun ZedCraftAppShell(
                         }
                     }
 
-                    // Fixed Bottom Navigation Bar on Compact/Medium Screens
-                    if (!isExpandedScreen) {
+                    // Fixed Bottom Navigation Bar on Compact/Medium Screens (hidden when IME keyboard is visible)
+                    if (!isExpandedScreen && !imeVisible) {
                         ZedCraftBottomNavigationBar(
                             selectedTab = uiState.selectedTab,
                             safeBottomInset = safeBottomInset,
@@ -633,7 +640,7 @@ private fun ZedCraftBottomNavigationBar(
         HorizontalDivider(color = ZedCardBorder.copy(alpha = 0.5f))
         NavigationBar(
             containerColor = ZedGlassSurface,
-            contentColor = Color.White,
+            contentColor = ZedTextPrimary,
             tonalElevation = 8.dp,
             windowInsets = WindowInsets(0, 0, 0, 0)
         ) {
@@ -678,7 +685,7 @@ private fun ZedCraftNavigationRail(
 ) {
     NavigationRail(
         containerColor = ZedGlassSurface,
-        contentColor = Color.White,
+        contentColor = ZedTextPrimary,
         windowInsets = WindowInsets(0, 0, 0, 0),
         modifier = Modifier
             .fillMaxHeight()
@@ -915,7 +922,7 @@ private fun ZedCraftGlowingUpdateModal(
                                         text = "New Update Available",
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
+                                        color = ZedTextPrimary,
                                         textAlign = TextAlign.Center
                                     )
 
@@ -1069,7 +1076,7 @@ private fun ZedCraftGlowingUpdateModal(
                                         text = "Downloading Update...",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White
+                                        color = ZedTextPrimary
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
@@ -1171,7 +1178,7 @@ private fun ZedCraftGlowingUpdateModal(
                                         text = if (isConnectionLost) "Connection lost" else "Update Paused",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White
+                                        color = ZedTextPrimary
                                     )
 
                                     Spacer(modifier = Modifier.height(6.dp))
@@ -1255,7 +1262,7 @@ private fun ZedCraftGlowingUpdateModal(
                                         text = "Allow Update Installation",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
+                                        color = ZedTextPrimary,
                                         textAlign = TextAlign.Center
                                     )
 

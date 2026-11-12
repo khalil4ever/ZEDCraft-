@@ -1,5 +1,12 @@
 # ZEDCraft Changelog
 
+## [1.3.9] - 2026-11-12
+### Fixed & Improved
+- **ZD AI End-to-End Reliability**: Fixed streaming SSE timeout aborts (separated 90s streaming callTimeout from short JSON timeout), added coroutine-cancellable OkHttp calls (`executeCancellable`), guarded Firebase AI fallback when `google-services.json` is not provisioned, prevented coroutine `CancellationException` swallowing, added a 4.5s timeout guard on optional YouTube search enrichment, and fixed duplicate welcome seeding via Room count checks.
+- **Stop Generation & Honest Errors**: Added an animated **Stop** button (`stopZdGeneration()`) to cancel in-flight responses cleanly while preserving partial output (>=40 chars), plus actionable error cards with real HTTP/network/API-key explanations and working **Retry** / **Dismiss** controls.
+- **ZD Chat & Keyboard UX Polish**: Added `.imePadding()` and automatic bottom nav hiding when the soft keyboard is open so the composer bar never gets covered, wired the keyboard **Send** IME action, and polished thinking indicators, status dots, and Copy/Save pills.
+- **Full Markdown Rendering Across All AI Tools**: Upgraded Script & Hook, Shorts Repurpose, Viral Topic Ideas, Comment Sentiment, and Video Deep Analyzer AI cards to use `ZdMarkdownMessage` with clean-text copy/vault saving.
+
 ## [1.3.8] - 2026-11-09
 ### Fixed
 - **Sub-Second ZD AI & Smart Suggestions Failover**: Switched primary direct model priority to `gemini-3.5-flash-lite` (~0.6s response time) with automatic fast failover to `gemini-flash-lite-latest` and `gemini-3.1-flash-lite` (8s connect / 12s read timeout instead of waiting 45s on timed-out `gemini-3.5-flash` endpoints), and restored `.env` build configuration so ZD AI chat and all optimizers respond immediately.

@@ -462,7 +462,7 @@ fun ZdMarkdownMessage(
                                     fontSize = fontSize,
                                     lineHeight = lineHeight,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = com.example.ui.theme.ZedTextPrimary
                                 ),
                                 onLinkClick = { url -> openExternalLink(context, url) }
                             )
@@ -565,7 +565,7 @@ fun ZdMarkdownMessage(
                             text = block.text,
                             baseStyle = bodyTextStyle.copy(
                                 fontStyle = FontStyle.Italic,
-                                color = Color.White
+                                color = com.example.ui.theme.ZedTextPrimary
                             ),
                             onLinkClick = { url -> openExternalLink(context, url) }
                         )
@@ -703,7 +703,7 @@ private fun ZdMarkdownTable(
                                 text = cellText,
                                 baseStyle = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
+                                    color = com.example.ui.theme.ZedTextPrimary,
                                     lineHeight = 18.sp
                                 ),
                                 onLinkClick = { url -> openExternalLink(context, url) }
@@ -859,12 +859,12 @@ fun buildInlineMarkdownAnnotatedString(rawText: String): AnnotatedString {
                     pop()
                 }
 
-                // 4. Bold (**text**) -> white, font-semibold
+                // 4. Bold (**text**) -> primary bright text, font-semibold
                 match.groups[6] != null -> {
                     val boldText = match.groups[7]?.value.orEmpty()
                     withStyle(
                         SpanStyle(
-                            color = Color.White,
+                            color = com.example.ui.theme.ZedTextPrimary,
                             fontWeight = FontWeight.SemiBold
                         )
                     ) {
@@ -872,12 +872,12 @@ fun buildInlineMarkdownAnnotatedString(rawText: String): AnnotatedString {
                     }
                 }
 
-                // 5. Bold (__text__) -> white, font-semibold
+                // 5. Bold (__text__) -> primary bright text, font-semibold
                 match.groups[8] != null -> {
                     val boldText = match.groups[9]?.value.orEmpty()
                     withStyle(
                         SpanStyle(
-                            color = Color.White,
+                            color = com.example.ui.theme.ZedTextPrimary,
                             fontWeight = FontWeight.SemiBold
                         )
                     ) {
@@ -903,7 +903,7 @@ fun buildInlineMarkdownAnnotatedString(rawText: String): AnnotatedString {
                     val italicText = match.groups[13]?.value.orEmpty()
                     withStyle(
                         SpanStyle(
-                            color = Color.White,
+                            color = com.example.ui.theme.ZedTextPrimary,
                             fontStyle = FontStyle.Italic
                         )
                     ) {

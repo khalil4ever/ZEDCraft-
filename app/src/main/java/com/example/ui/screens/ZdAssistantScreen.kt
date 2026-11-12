@@ -4,8 +4,21 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -26,19 +39,24 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +64,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,24 +73,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.local.ZdChatMessageEntity
 import com.example.ui.components.ZdMarkdownMessage
 import com.example.ui.components.stripMarkdownToCleanText
 import com.example.ui.theme.ZedAmberWarning
+import com.example.ui.theme.ZedBrandKellyGreen
 import com.example.ui.theme.ZedCardBorder
+import com.example.ui.theme.ZedCoralError
 import com.example.ui.theme.ZedCyanPrimary
 import com.example.ui.theme.ZedDarkBackground
 import com.example.ui.theme.ZedDarkSurfaceElevated
 import com.example.ui.theme.ZedEmeraldSuccess
 import com.example.ui.theme.ZedGlassSurface
+import com.example.ui.theme.ZedOnPrimaryDark
 import com.example.ui.theme.ZedPurpleAccent
 import com.example.ui.theme.ZedTextMuted
+import com.example.ui.theme.ZedTextPrimary
 import com.example.ui.theme.ZedTextSecondary
 import com.example.ui.viewmodel.ZedCraftUiState
 import com.example.ui.viewmodel.ZedCraftViewModel
@@ -82,7 +110,37 @@ fun ZdAssistantScreen(
     chatMessages: List<ZdChatMessageEntity>,
     viewModel: ZedCraftViewModel
 ) {
+    ZdAssistantContent(
+        uiState = uiState,
+        chatMessages = chatMessages,
+        onSendPrompt = { prompt -> viewModel.sendZdPrompt(prompt) },
+        onStopGeneration = { viewModel.stopZdGeneration() },
+        onRetryLastPrompt = { viewModel.retryLastZdPrompt() },
+        onDismissError = { viewModel.dismissZdError() },
+        onClearChat = { viewModel.clearZdChat() },
+        onSaveToVault = { title, content ->
+            viewModel.saveIdeaToVault(
+                category = "ZD Coaching",
+                title = title,
+                content = content
+            )
+        }
+    )
+}
+
+@Composable
+fun ZdAssistantContent(
+    uiState: ZedCraftUiState,
+    chatMessages: List<ZdChatMessageEntity>,
+    onSendPrompt: (String) -> Unit,
+    onStopGeneration: () -> Unit,
+    onRetryLastPrompt: () -> Unit,
+    onDismissError: () -> Unit,
+    onClearChat: () -> Unit,
+    onSaveToVault: (title: String, content: String) -> Unit
+) {
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var inputPrompt by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -108,12 +166,21 @@ fun ZdAssistantScreen(
         }
     }
 
+    val submitCurrentPrompt = {
+        val toSend = inputPrompt.trim()
+        if (toSend.isNotBlank() && !uiState.isZdThinking) {
+            inputPrompt = ""
+            keyboardController?.hide()
+            onSendPrompt(toSend)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(ZedDarkBackground)
     ) {
-        // ZD Header Strip + Quick Action Pills
+        // ZD Status Header Strip + Quick Action Pills
         Surface(
             color = ZedGlassSurface,
             modifier = Modifier.fillMaxWidth()
@@ -124,12 +191,23 @@ fun ZdAssistantScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
-                                .background(ZedCyanPrimary.copy(alpha = 0.16f)),
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            ZedCyanPrimary.copy(alpha = 0.24f),
+                                            ZedBrandKellyGreen.copy(alpha = 0.35f)
+                                        )
+                                    )
+                                )
+                                .border(1.dp, ZedCyanPrimary.copy(alpha = 0.45f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -140,27 +218,52 @@ fun ZdAssistantScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "ZD • YouTube Strategy Coach",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ZedTextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (uiState.isZdThinking) ZedCyanPrimary else ZedEmeraldSuccess
+                                        )
+                                )
+                            }
                             Text(
-                                text = "ZD • YouTube Growth & Strategy Coach",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = if (uiState.activeChannel != null) {
-                                    "Context: ${uiState.activeChannel.title} (${uiState.activeChannel.handle})"
-                                } else {
-                                    "Ask anything about titles, CTR, retention & growth"
+                                text = when {
+                                    uiState.isZdThinking && !uiState.streamingZdMessage.isNullOrBlank() ->
+                                        "Streaming channel-aware strategy..."
+                                    uiState.isZdThinking ->
+                                        "Analyzing channel metrics & crafting answer..."
+                                    uiState.activeChannel != null ->
+                                        "Ready • ${uiState.activeChannel.title} (${uiState.activeChannel.handle})"
+                                    else ->
+                                        "Ready • Ask about titles, CTR, hooks & growth"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = ZedEmeraldSuccess
+                                color = if (uiState.isZdThinking) ZedCyanPrimary else ZedEmeraldSuccess,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
 
                     IconButton(
-                        onClick = { viewModel.clearZdChat() },
-                        modifier = Modifier.testTag("zd_clear_chat_button")
+                        onClick = onClearChat,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("zd_clear_chat_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
@@ -170,7 +273,7 @@ fun ZdAssistantScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Quick Action Prompts Row
                 Row(
@@ -182,16 +285,17 @@ fun ZdAssistantScreen(
                     quickActionPrompts.forEach { (label, fullPrompt) ->
                         Surface(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
+                                .alpha(if (uiState.isZdThinking) 0.55f else 1f)
+                                .clip(RoundedCornerShape(14.dp))
                                 .clickable(enabled = !uiState.isZdThinking) {
-                                    viewModel.sendZdPrompt(fullPrompt)
+                                    onSendPrompt(fullPrompt)
                                 },
                             color = ZedDarkSurfaceElevated,
-                            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.35f)),
-                            shape = RoundedCornerShape(12.dp)
+                            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.32f)),
+                            shape = RoundedCornerShape(14.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -205,7 +309,7 @@ fun ZdAssistantScreen(
                                     text = label,
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
+                                    color = ZedTextPrimary
                                 )
                             }
                         }
@@ -213,6 +317,7 @@ fun ZdAssistantScreen(
                 }
             }
         }
+        HorizontalDivider(color = ZedCardBorder.copy(alpha = 0.55f))
 
         // Chat Messages Stream (Scrollable)
         LazyColumn(
@@ -220,8 +325,8 @@ fun ZdAssistantScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(chatMessages, key = { it.id }) { msg ->
                 ZdChatBubble(
@@ -240,11 +345,7 @@ fun ZdAssistantScreen(
                             .firstOrNull { it.isNotBlank() }
                             ?.take(60)
                             ?: "ZD Strategy Note"
-                        viewModel.saveIdeaToVault(
-                            category = "ZD Coaching",
-                            title = cleanTitle,
-                            content = cleanBody
-                        )
+                        onSaveToVault(cleanTitle, cleanBody)
                         Toast.makeText(context, "Saved to Vault", Toast.LENGTH_SHORT).show()
                     }
                 )
@@ -261,107 +362,24 @@ fun ZdAssistantScreen(
                             }
                         )
                     } else {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(0.85f),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
-                            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.5.dp,
-                                    color = ZedCyanPrimary
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = "ZD is analyzing your channel & crafting strategy...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = ZedTextSecondary
-                                )
-                            }
-                        }
+                        ZdThinkingIndicatorCard()
                     }
                 }
             }
 
             if (!uiState.zdError.isNullOrBlank()) {
-                item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("zd_friendly_error_card"),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
-                        border = BorderStroke(1.dp, ZedAmberWarning.copy(alpha = 0.55f))
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(ZedAmberWarning.copy(alpha = 0.16f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.WifiOff,
-                                        contentDescription = null,
-                                        tint = ZedAmberWarning,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "ZD is having trouble connecting. Please try again.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Button(
-                                onClick = { viewModel.retryLastZdPrompt() },
-                                enabled = !uiState.isZdThinking,
-                                modifier = Modifier.testTag("zd_retry_button"),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = ZedCyanPrimary,
-                                    contentColor = ZedDarkBackground
-                                ),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Retry",
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Retry",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
+                item(key = "zd_error_card_item") {
+                    ZdErrorActionCard(
+                        errorMessage = uiState.zdError,
+                        isThinking = uiState.isZdThinking,
+                        onRetry = onRetryLastPrompt,
+                        onDismiss = onDismissError
+                    )
                 }
             }
         }
 
-        // Fixed Bottom Composer Bar
+        // Fixed Bottom Composer Bar (automatically pushed above keyboard via AppShell imePadding)
         Surface(
             color = ZedGlassSurface,
             modifier = Modifier.fillMaxWidth(),
@@ -371,59 +389,261 @@ fun ZdAssistantScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
                 OutlinedTextField(
                     value = inputPrompt,
                     onValueChange = { inputPrompt = it },
                     placeholder = {
                         Text(
-                            text = "Ask ZD about titles, hooks, CTR, or growth...",
-                            color = ZedTextMuted
+                            text = if (uiState.isZdThinking) {
+                                "ZD is responding... type next question"
+                            } else {
+                                "Ask ZD about titles, hooks, CTR, or growth..."
+                            },
+                            color = ZedTextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     },
                     maxLines = 4,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = { submitCurrentPrompt() }
+                    ),
                     modifier = Modifier
                         .weight(1f)
                         .testTag("zd_prompt_input"),
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(22.dp),
                     colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = ZedTextPrimary,
+                        unfocusedTextColor = ZedTextPrimary,
+                        cursorColor = ZedCyanPrimary,
                         focusedBorderColor = ZedCyanPrimary,
                         unfocusedBorderColor = ZedCardBorder,
                         focusedContainerColor = ZedDarkBackground,
                         unfocusedContainerColor = ZedDarkBackground
                     )
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = {
-                        val toSend = inputPrompt.trim()
-                        if (toSend.isNotBlank() && !uiState.isZdThinking) {
-                            inputPrompt = ""
-                            viewModel.sendZdPrompt(toSend)
-                        }
+                Spacer(modifier = Modifier.width(10.dp))
+
+                AnimatedContent(
+                    targetState = uiState.isZdThinking,
+                    transitionSpec = {
+                        (fadeIn(tween(180)) + scaleIn(initialScale = 0.86f, animationSpec = tween(180))) togetherWith
+                            (fadeOut(tween(140)) + scaleOut(targetScale = 0.86f, animationSpec = tween(140)))
                     },
-                    enabled = inputPrompt.isNotBlank() && !uiState.isZdThinking,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (inputPrompt.isNotBlank() && !uiState.isZdThinking) {
-                                ZedCyanPrimary
-                            } else {
-                                ZedCardBorder
-                            }
+                    label = "zd_composer_action_button"
+                ) { isThinking ->
+                    if (isThinking) {
+                        IconButton(
+                            onClick = onStopGeneration,
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(ZedCoralError.copy(alpha = 0.2f))
+                                .border(1.5.dp, ZedCoralError, CircleShape)
+                                .testTag("zd_stop_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop Generation",
+                                tint = ZedCoralError,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    } else {
+                        val canSend = inputPrompt.isNotBlank()
+                        IconButton(
+                            onClick = { submitCurrentPrompt() },
+                            enabled = canSend,
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(if (canSend) ZedCyanPrimary else ZedDarkSurfaceElevated)
+                                .border(
+                                    width = 1.dp,
+                                    color = if (canSend) ZedCyanPrimary else ZedCardBorder,
+                                    shape = CircleShape
+                                )
+                                .testTag("zd_send_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send to ZD",
+                                tint = if (canSend) ZedOnPrimaryDark else ZedTextMuted,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZdThinkingIndicatorCard() {
+    val infiniteTransition = rememberInfiniteTransition(label = "zd_thinking_dots")
+    val dot1 by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 540, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot1"
+    )
+    val dot2 by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 540, delayMillis = 160, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot2"
+    )
+    val dot3 by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 540, delayMillis = 320, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot3"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth(0.88f)
+            .testTag("zd_thinking_indicator"),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp),
+        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+        border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(dot1, dot2, dot3).forEach { alphaVal ->
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .alpha(alphaVal)
+                            .clip(CircleShape)
+                            .background(ZedCyanPrimary)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "ZD is analyzing your channel & crafting strategy...",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = ZedTextSecondary
+            )
+        }
+    }
+}
+
+@Composable
+private fun ZdErrorActionCard(
+    errorMessage: String,
+    isThinking: Boolean,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isConfigOrNetwork = errorMessage.contains("key", ignoreCase = true) ||
+        errorMessage.contains("internet", ignoreCase = true)
+    val accent = if (isConfigOrNetwork) ZedCoralError else ZedAmberWarning
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("zd_friendly_error_card"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.6f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(accent.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WifiOff,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(18.dp)
                         )
-                        .testTag("zd_send_button")
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ZedTextPrimary
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("zd_dismiss_error_button")
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send to ZD",
-                        tint = if (inputPrompt.isNotBlank() && !uiState.isZdThinking) {
-                            ZedDarkBackground
-                        } else {
-                            ZedTextMuted
-                        }
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Dismiss error",
+                        tint = ZedTextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    onClick = onRetry,
+                    enabled = !isThinking,
+                    modifier = Modifier.testTag("zd_retry_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ZedCyanPrimary,
+                        contentColor = ZedOnPrimaryDark
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Retry",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Retry",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -443,7 +663,7 @@ private fun ZdChatBubble(
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(if (isUser) 0.85f else 0.96f),
+            modifier = Modifier.fillMaxWidth(if (isUser) 0.84f else 0.96f),
             shape = RoundedCornerShape(
                 topStart = 18.dp,
                 topEnd = 18.dp,
@@ -451,11 +671,11 @@ private fun ZdChatBubble(
                 bottomEnd = if (isUser) 4.dp else 18.dp
             ),
             colors = CardDefaults.cardColors(
-                containerColor = if (isUser) ZedPurpleAccent.copy(alpha = 0.28f) else ZedGlassSurface
+                containerColor = if (isUser) ZedDarkSurfaceElevated else ZedGlassSurface
             ),
             border = BorderStroke(
                 1.dp,
-                if (isUser) ZedPurpleAccent.copy(alpha = 0.55f) else ZedCardBorder
+                if (isUser) ZedCyanPrimary.copy(alpha = 0.45f) else ZedCardBorder
             )
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -464,49 +684,92 @@ private fun ZdChatBubble(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (isUser) "You" else "ZD • Growth Coach",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isUser) ZedPurpleAccent else ZedCyanPrimary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (!isUser) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = ZedCyanPrimary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                        Text(
+                            text = if (isUser) "You" else "ZD • Growth Coach",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isUser) ZedPurpleAccent else ZedCyanPrimary
+                        )
+                    }
                     if (!isUser) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(
-                                onClick = onCopy,
-                                modifier = Modifier.size(28.dp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(onClick = onCopy)
+                                    .testTag("zd_copy_message_button"),
+                                color = ZedDarkSurfaceElevated,
+                                border = BorderStroke(1.dp, ZedCardBorder),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy Response",
-                                    tint = ZedTextSecondary,
-                                    modifier = Modifier.size(15.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy Response",
+                                        tint = ZedTextSecondary,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Copy",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = ZedTextSecondary
+                                    )
+                                }
                             }
-                            IconButton(
-                                onClick = onSaveToVault,
-                                modifier = Modifier.size(28.dp)
+                            Surface(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(onClick = onSaveToVault)
+                                    .testTag("zd_save_message_button"),
+                                color = ZedDarkSurfaceElevated,
+                                border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.35f)),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.BookmarkAdd,
-                                    contentDescription = "Save Response to Vault",
-                                    tint = ZedCyanPrimary,
-                                    modifier = Modifier.size(15.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.BookmarkAdd,
+                                        contentDescription = "Save Response to Vault",
+                                        tint = ZedCyanPrimary,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Save",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = ZedCyanPrimary
+                                    )
+                                }
                             }
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 if (isUser) {
-                    // User messages remain plain text
                     Text(
                         text = message.content,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
+                        color = ZedTextPrimary
                     )
                 } else {
-                    // AI messages render full styled GFM Markdown
                     ZdMarkdownMessage(
                         markdown = message.content,
                         isStreaming = false
@@ -527,7 +790,9 @@ private fun ZdStreamingChatBubble(
         horizontalAlignment = Alignment.Start
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(0.96f),
+            modifier = Modifier
+                .fillMaxWidth(0.96f)
+                .testTag("zd_streaming_bubble"),
             shape = RoundedCornerShape(
                 topStart = 18.dp,
                 topEnd = 18.dp,
@@ -535,7 +800,7 @@ private fun ZdStreamingChatBubble(
                 bottomEnd = 18.dp
             ),
             colors = CardDefaults.cardColors(containerColor = ZedGlassSurface),
-            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.45f))
+            border = BorderStroke(1.dp, ZedCyanPrimary.copy(alpha = 0.55f))
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(
@@ -545,28 +810,43 @@ private fun ZdStreamingChatBubble(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
+                            modifier = Modifier.size(13.dp),
                             strokeWidth = 2.dp,
                             color = ZedCyanPrimary
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "ZD • Growth Coach",
+                            text = "ZD • Live Strategy",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = ZedCyanPrimary
                         )
                     }
-                    IconButton(
-                        onClick = onCopy,
-                        modifier = Modifier.size(28.dp)
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onCopy),
+                        color = ZedDarkSurfaceElevated,
+                        border = BorderStroke(1.dp, ZedCardBorder),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy Response",
-                            tint = ZedTextSecondary,
-                            modifier = Modifier.size(15.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy Response",
+                                tint = ZedTextSecondary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Copy",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ZedTextSecondary
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))

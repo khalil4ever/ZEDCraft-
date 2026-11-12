@@ -94,6 +94,7 @@ import com.example.R
 import com.example.data.local.ChecklistItemEntity
 import com.example.data.local.SavedIdeaEntity
 import com.example.data.remote.YouTubeApiClient
+import com.example.ui.components.ZdMarkdownMessage
 import com.example.ui.theme.ZedAmberWarning
 import com.example.ui.theme.ZedCardBorder
 import com.example.ui.theme.ZedCoralError
@@ -103,6 +104,7 @@ import com.example.ui.theme.ZedDarkSurfaceElevated
 import com.example.ui.theme.ZedEmeraldSuccess
 import com.example.ui.theme.ZedGlassSurface
 import com.example.ui.theme.ZedPurpleAccent
+import com.example.ui.theme.ZedTextPrimary
 import com.example.ui.theme.ZedTextMuted
 import com.example.ui.theme.ZedTextSecondary
 import com.example.ui.viewmodel.DetailDestination
@@ -671,8 +673,8 @@ fun CreditsScreen(
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(
-                                    Color(0xFF00E5FF).copy(alpha = 0.25f),
-                                    Color(0xFF8B5CF6).copy(alpha = 0.25f)
+                                    ZedCyanPrimary.copy(alpha = 0.25f),
+                                    ZedPurpleAccent.copy(alpha = 0.25f)
                                 )
                             )
                         ),
@@ -693,7 +695,7 @@ fun CreditsScreen(
                     text = "ZEDCraft",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
+                    color = ZedTextPrimary,
                     textAlign = TextAlign.Center
                 )
 
@@ -725,7 +727,7 @@ fun CreditsScreen(
                         text = "About the creator",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = ZedTextPrimary
                     )
 
                     CreatorBulletRow(text = "\uD83C\uDDFF\uD83C\uDDF2 Based in Zambia")
@@ -1322,10 +1324,9 @@ fun VideoDeepAnalyzerScreen(
 
                         if (!uiState.videoAiCoachingSummary.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = uiState.videoAiCoachingSummary,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White
+                            ZdMarkdownMessage(
+                                markdown = uiState.videoAiCoachingSummary,
+                                isStreaming = false
                             )
                         }
                     }

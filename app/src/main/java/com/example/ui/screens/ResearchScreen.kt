@@ -68,6 +68,8 @@ import coil.compose.AsyncImage
 import com.example.data.remote.CompetitorComparison
 import com.example.data.remote.KeywordResearchResult
 import com.example.data.remote.YouTubeApiClient
+import com.example.ui.components.ZdMarkdownMessage
+import com.example.ui.components.stripMarkdownToCleanText
 import com.example.ui.theme.ZedAmberWarning
 import com.example.ui.theme.ZedCardBorder
 import com.example.ui.theme.ZedCoralError
@@ -544,6 +546,15 @@ private fun TrendsAndViralIdeasSection(
                         Text("Generate 10 Breakout Video Ideas", fontWeight = FontWeight.Bold)
                     }
                 }
+
+                if (!uiState.researchError.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.researchError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ZedCoralError
+                    )
+                }
             }
         }
 
@@ -571,7 +582,7 @@ private fun TrendsAndViralIdeasSection(
                                 viewModel.saveIdeaToVault(
                                     category = "Viral Ideas",
                                     title = "10 Breakout Ideas: $nicheQuery",
-                                    content = uiState.trendIdeasMarkdown
+                                    content = stripMarkdownToCleanText(uiState.trendIdeasMarkdown)
                                 )
                                 Toast.makeText(context, "Saved ideas to Vault!", Toast.LENGTH_SHORT).show()
                             }
@@ -580,10 +591,9 @@ private fun TrendsAndViralIdeasSection(
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = uiState.trendIdeasMarkdown,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
+                    ZdMarkdownMessage(
+                        markdown = uiState.trendIdeasMarkdown,
+                        isStreaming = false
                     )
                 }
             }
@@ -897,6 +907,15 @@ private fun CommentSentimentSection(
                         Text("Analyze Viewer Comments", fontWeight = FontWeight.Bold)
                     }
                 }
+
+                if (!uiState.researchError.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.researchError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ZedCoralError
+                    )
+                }
             }
         }
 
@@ -915,10 +934,9 @@ private fun CommentSentimentSection(
                         color = ZedCyanPrimary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = uiState.commentSentimentMarkdown,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
+                    ZdMarkdownMessage(
+                        markdown = uiState.commentSentimentMarkdown,
+                        isStreaming = false
                     )
                 }
             }

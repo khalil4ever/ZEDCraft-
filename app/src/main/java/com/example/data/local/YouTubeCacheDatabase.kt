@@ -123,8 +123,14 @@ interface YouTubeCacheDao {
     suspend fun deleteSavedIdea(id: Long)
 
     // ZD Chat History
-    @Query("SELECT * FROM zd_chat_messages ORDER BY createdAtMs ASC")
+    @Query("SELECT * FROM zd_chat_messages ORDER BY createdAtMs ASC, id ASC")
     fun observeZdChatMessages(): Flow<List<ZdChatMessageEntity>>
+
+    @Query("SELECT COUNT(*) FROM zd_chat_messages")
+    suspend fun getZdChatMessageCount(): Int
+
+    @Query("SELECT * FROM zd_chat_messages ORDER BY createdAtMs DESC, id DESC LIMIT :limit")
+    suspend fun getRecentZdChatMessages(limit: Int = 12): List<ZdChatMessageEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertZdChatMessage(message: ZdChatMessageEntity): Long

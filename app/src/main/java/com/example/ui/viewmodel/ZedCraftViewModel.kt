@@ -190,6 +190,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
     val gitHubUpdateClient = GitHubUpdateClient(application.applicationContext)
 
     private var activeDownloadJob: Job? = null
+    private var activeZdJob: Job? = null
     private var networkCallbackRegistered = false
     private var hasCheckedUpdateThisOpen = false
 
@@ -554,45 +555,65 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
         _uiState.update { it.copy(isScoringCustomTitle = true, optimizeError = null) }
         viewModelScope.launch {
-            val channelCtx = _uiState.value.activeChannel?.let {
-                "Channel: ${it.title} (${it.handle}), Subscribers: ${it.subscriberCount}"
-            } ?: "Niche: ${_uiState.value.optimizeNicheInput}"
-            val searchPatterns = youTubeApi.fetchTopicSearchPatterns(
-                topicOrTitleOrUrl = draft,
-                oauthAccessToken = _uiState.value.oauthAccessToken
-            )
-            val result = aiService.scoreSingleCustomTitle(
-                customTitle = draft,
-                niche = _uiState.value.optimizeNicheInput,
-                channelContext = channelCtx,
-                searchPatterns = searchPatterns
-            )
-            result.onSuccess { scored ->
-                _uiState.update {
-                    it.copy(
-                        isScoringCustomTitle = false,
-                        customTitleScoreResult = scored
-                    )
+            try {
+                val channelCtx = _uiState.value.activeChannel?.let {
+                    "Channel: ${it.title} (${it.handle}), Subscribers: ${it.subscriberCount}"
+                } ?: "Niche: ${_uiState.value.optimizeNicheInput}"
+                val searchPatterns = withTimeoutOrNull(4500L) {
+                    runCatching {
+                        youTubeApi.fetchTopicSearchPatterns(
+                            topicOrTitleOrUrl = draft,
+                            oauthAccessToken = _uiState.value.oauthAccessToken
+                        )
+                    }.getOrNull()
                 }
-                // Also build full 10-title, description & tag smart suggestions if not already present for this draft
-                val stateNow = _uiState.value
-                val fullRes = aiService.generateOptimizedTitlesAndMetadata(
-                    topicOrDraftTitle = draft,
-                    niche = stateNow.optimizeNicheInput,
-                    currentDescription = stateNow.optimizeDescInput,
-                    currentTags = stateNow.optimizeTagsInput.split(",").map { t -> t.trim() }.filter { t -> t.isNotBlank() },
-                    channelContext = buildActiveChannelContextString(),
+                val result = aiService.scoreSingleCustomTitle(
+                    customTitle = draft,
+                    niche = _uiState.value.optimizeNicheInput,
+                    channelContext = channelCtx,
                     searchPatterns = searchPatterns
-                ).getOrNull()
-                if (fullRes != null) {
-                    _uiState.update { it.copy(titleOptimizerResult = fullRes) }
+                )
+                result.onSuccess { scored ->
+                    _uiState.update {
+                        it.copy(
+                            isScoringCustomTitle = false,
+                            customTitleScoreResult = scored
+                        )
+                    }
+                    // Also build full 10-title, description & tag smart suggestions if not already present for this draft
+                    val stateNow = _uiState.value
+                    val fullRes = aiService.generateOptimizedTitlesAndMetadata(
+                        topicOrDraftTitle = draft,
+                        niche = stateNow.optimizeNicheInput,
+                        currentDescription = stateNow.optimizeDescInput,
+                        currentTags = stateNow.optimizeTagsInput.split(",").map { t -> t.trim() }.filter { t -> t.isNotBlank() },
+                        channelContext = buildActiveChannelContextString(),
+                        searchPatterns = searchPatterns
+                    ).getOrNull()
+                    if (fullRes != null) {
+                        _uiState.update { it.copy(titleOptimizerResult = fullRes) }
+                    }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            isScoringCustomTitle = false,
+                            optimizeError = ZedCraftAiService.extractFriendlyError(err)
+                        )
+                    }
                 }
-            }.onFailure {
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "scoreCustomTitleDraft unexpected failure", e)
                 _uiState.update {
                     it.copy(
                         isScoringCustomTitle = false,
-                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                        optimizeError = ZedCraftAiService.extractFriendlyError(e)
                     )
+                }
+            } finally {
+                if (_uiState.value.isScoringCustomTitle) {
+                    _uiState.update { it.copy(isScoringCustomTitle = false) }
                 }
             }
         }
@@ -988,43 +1009,59 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         val v = audit.video
         _uiState.update { it.copy(isGeneratingVideoCoaching = true) }
         viewModelScope.launch {
-            val prompt = """
-                Perform a diagnostic review of this real YouTube video:
-                - Title: "${v.title}" (${v.title.length} chars)
-                - Views: ${v.viewCount}, Likes: ${v.likeCount}, Comments: ${v.commentCount}
-                - Engagement Rate: ${String.format("%.2f", v.engagementRatePercent)}%
-                - Duration: ${YouTubeApiClient.formatDuration(v.durationSeconds)} (Short=${v.isShort})
-                - Has Chapters: ${v.hasChapters} (${v.chapterCount} timestamps)
-                - Tags (${v.tags.size}): ${v.tags.take(15).joinToString(", ")}
-                - First 200 chars of Description: "${v.description.take(200)}"
-                - Overall SEO Score: ${audit.overallSeoScore}/100
+            try {
+                val prompt = """
+                    Perform a diagnostic review of this real YouTube video:
+                    - Title: "${v.title}" (${v.title.length} chars)
+                    - Views: ${v.viewCount}, Likes: ${v.likeCount}, Comments: ${v.commentCount}
+                    - Engagement Rate: ${String.format("%.2f", v.engagementRatePercent)}%
+                    - Duration: ${YouTubeApiClient.formatDuration(v.durationSeconds)} (Short=${v.isShort})
+                    - Has Chapters: ${v.hasChapters} (${v.chapterCount} timestamps)
+                    - Tags (${v.tags.size}): ${v.tags.take(15).joinToString(", ")}
+                    - First 200 chars of Description: "${v.description.take(200)}"
+                    - Overall SEO Score: ${audit.overallSeoScore}/100
 
-                Provide:
-                1. **Why It Performed This Way**: Specific packaging, hook, and topic analysis.
-                2. **3 High-CTR Replacement Titles**: Under 60 chars with curiosity gap.
-                3. **Thumbnail Repackaging Concept**: Exact visual layout + 3-word overlay text.
-                4. **Retention & Chapter Fix**: Concrete adjustment to lift average percentage viewed.
-            """.trimIndent()
+                    Provide:
+                    1. **Why It Performed This Way**: Specific packaging, hook, and topic analysis.
+                    2. **3 High-CTR Replacement Titles**: Under 60 chars with curiosity gap.
+                    3. **Thumbnail Repackaging Concept**: Exact visual layout + 3-word overlay text.
+                    4. **Retention & Chapter Fix**: Concrete adjustment to lift average percentage viewed.
+                """.trimIndent()
 
-            val channelContext = buildActiveChannelContextString()
-            val response = aiService.askZdAssistant(
-                userPrompt = prompt,
-                channelContext = channelContext,
-                chatHistory = emptyList()
-            )
-            response.onSuccess { text ->
+                val channelContext = buildActiveChannelContextString()
+                val response = aiService.askZdAssistant(
+                    userPrompt = prompt,
+                    channelContext = channelContext,
+                    chatHistory = emptyList()
+                )
+                response.onSuccess { text ->
+                    _uiState.update {
+                        it.copy(
+                            videoAiCoachingSummary = text,
+                            isGeneratingVideoCoaching = false
+                        )
+                    }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            videoAiCoachingSummary = ZedCraftAiService.extractFriendlyError(err),
+                            isGeneratingVideoCoaching = false
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "generateAiCoachingForInspectedVideo unexpected error", e)
                 _uiState.update {
                     it.copy(
-                        videoAiCoachingSummary = text,
+                        videoAiCoachingSummary = ZedCraftAiService.extractFriendlyError(e),
                         isGeneratingVideoCoaching = false
                     )
                 }
-            }.onFailure {
-                _uiState.update {
-                    it.copy(
-                        videoAiCoachingSummary = ZedCraftAiService.FRIENDLY_ZD_ERROR,
-                        isGeneratingVideoCoaching = false
-                    )
+            } finally {
+                if (_uiState.value.isGeneratingVideoCoaching) {
+                    _uiState.update { it.copy(isGeneratingVideoCoaching = false) }
                 }
             }
         }
@@ -1178,38 +1215,58 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
             )
         }
         viewModelScope.launch {
-            val seedQuery = effectiveTitle.ifBlank { effectiveTopic }
-            val searchPatterns = youTubeApi.fetchTopicSearchPatterns(
-                topicOrTitleOrUrl = seedQuery,
-                oauthAccessToken = state.oauthAccessToken,
-                forceRefresh = forceRefreshSearch
-            )
-            val result = aiService.generateOptimizedTitlesAndMetadata(
-                topicOrDraftTitle = seedQuery,
-                niche = state.optimizeNicheInput,
-                currentDescription = effectiveDesc,
-                currentTags = effectiveTags
-                    .split(",")
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() },
-                channelContext = buildActiveChannelContextString(),
-                searchPatterns = searchPatterns
-            )
-            result.onSuccess { res ->
+            try {
+                val seedQuery = effectiveTitle.ifBlank { effectiveTopic }
+                val searchPatterns = withTimeoutOrNull(5000L) {
+                    runCatching {
+                        youTubeApi.fetchTopicSearchPatterns(
+                            topicOrTitleOrUrl = seedQuery,
+                            oauthAccessToken = state.oauthAccessToken,
+                            forceRefresh = forceRefreshSearch
+                        )
+                    }.getOrNull()
+                }
+                val result = aiService.generateOptimizedTitlesAndMetadata(
+                    topicOrDraftTitle = seedQuery,
+                    niche = state.optimizeNicheInput,
+                    currentDescription = effectiveDesc,
+                    currentTags = effectiveTags
+                        .split(",")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() },
+                    channelContext = buildActiveChannelContextString(),
+                    searchPatterns = searchPatterns
+                )
+                result.onSuccess { res ->
+                    _uiState.update {
+                        it.copy(
+                            titleOptimizerResult = res,
+                            isOptimizing = false,
+                            optimizeError = null
+                        )
+                    }
+                }.onFailure { err ->
+                    Log.w(TAG, "runTitleDescTagsOptimizer failed", err)
+                    _uiState.update {
+                        it.copy(
+                            isOptimizing = false,
+                            optimizeError = ZedCraftAiService.extractFriendlyError(err)
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "runTitleDescTagsOptimizer unexpected failure", e)
                 _uiState.update {
                     it.copy(
-                        titleOptimizerResult = res,
                         isOptimizing = false,
-                        optimizeError = null
+                        optimizeError = ZedCraftAiService.extractFriendlyError(e)
                     )
                 }
-            }.onFailure { err ->
-                Log.w(TAG, "runTitleDescTagsOptimizer failed", err)
-                _uiState.update {
-                    it.copy(
-                        isOptimizing = false,
-                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
-                    )
+            } finally {
+                if (_uiState.value.isOptimizing) {
+                    _uiState.update { it.copy(isOptimizing = false) }
                 }
             }
         }
@@ -1234,29 +1291,45 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
         _uiState.update { it.copy(isOptimizing = true, optimizeError = null) }
         viewModelScope.launch {
-            val titleForThumb = state.optimizeTitleInput.ifBlank {
-                state.selectedTargetVideo?.title ?: state.optimizeTopicInput.ifBlank { "YouTube Video" }
-            }
-            val result = aiService.critiqueThumbnailWithVision(
-                primaryBitmap = primary,
-                videoTitle = titleForThumb,
-                comparisonBitmap = state.secondThumbnailBitmap
-            )
-            result.onSuccess { visionRes ->
+            try {
+                val titleForThumb = state.optimizeTitleInput.ifBlank {
+                    state.selectedTargetVideo?.title ?: state.optimizeTopicInput.ifBlank { "YouTube Video" }
+                }
+                val result = aiService.critiqueThumbnailWithVision(
+                    primaryBitmap = primary,
+                    videoTitle = titleForThumb,
+                    comparisonBitmap = state.secondThumbnailBitmap
+                )
+                result.onSuccess { visionRes ->
+                    _uiState.update {
+                        it.copy(
+                            thumbnailVisionResult = visionRes,
+                            isOptimizing = false,
+                            optimizeError = null
+                        )
+                    }
+                }.onFailure { err ->
+                    Log.w(TAG, "runThumbnailVisionCritique failed", err)
+                    _uiState.update {
+                        it.copy(
+                            isOptimizing = false,
+                            optimizeError = ZedCraftAiService.extractFriendlyError(err)
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "runThumbnailVisionCritique unexpected failure", e)
                 _uiState.update {
                     it.copy(
-                        thumbnailVisionResult = visionRes,
                         isOptimizing = false,
-                        optimizeError = null
+                        optimizeError = ZedCraftAiService.extractFriendlyError(e)
                     )
                 }
-            }.onFailure { err ->
-                Log.w(TAG, "runThumbnailVisionCritique failed", err)
-                _uiState.update {
-                    it.copy(
-                        isOptimizing = false,
-                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
-                    )
+            } finally {
+                if (_uiState.value.isOptimizing) {
+                    _uiState.update { it.copy(isOptimizing = false) }
                 }
             }
         }
@@ -1271,21 +1344,37 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
         _uiState.update { it.copy(isOptimizing = true, optimizeError = null) }
         viewModelScope.launch {
-            val res = aiService.generateScriptAndHooks(
-                topic = topic,
-                targetDurationMinutes = durationMinutes,
-                tone = tone,
-                channelContext = buildActiveChannelContextString()
-            )
-            res.onSuccess { md ->
-                _uiState.update { it.copy(scriptOutputMarkdown = md, isOptimizing = false) }
-            }.onFailure { err ->
-                Log.w(TAG, "runScriptAndHookGenerator failed", err)
+            try {
+                val res = aiService.generateScriptAndHooks(
+                    topic = topic,
+                    targetDurationMinutes = durationMinutes,
+                    tone = tone,
+                    channelContext = buildActiveChannelContextString()
+                )
+                res.onSuccess { md ->
+                    _uiState.update { it.copy(scriptOutputMarkdown = md, isOptimizing = false) }
+                }.onFailure { err ->
+                    Log.w(TAG, "runScriptAndHookGenerator failed", err)
+                    _uiState.update {
+                        it.copy(
+                            isOptimizing = false,
+                            optimizeError = ZedCraftAiService.extractFriendlyError(err)
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "runScriptAndHookGenerator unexpected failure", e)
                 _uiState.update {
                     it.copy(
                         isOptimizing = false,
-                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                        optimizeError = ZedCraftAiService.extractFriendlyError(e)
                     )
+                }
+            } finally {
+                if (_uiState.value.isOptimizing) {
+                    _uiState.update { it.copy(isOptimizing = false) }
                 }
             }
         }
@@ -1300,19 +1389,35 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
         _uiState.update { it.copy(isOptimizing = true, optimizeError = null) }
         viewModelScope.launch {
-            val res = aiService.generateShortsRepurposePlan(
-                videoTitle = title.ifBlank { "Creator Video" },
-                videoDescriptionOrTranscript = transcriptOrSummary.ifBlank { state.optimizeDescInput }
-            )
-            res.onSuccess { md ->
-                _uiState.update { it.copy(shortsPlanMarkdown = md, isOptimizing = false) }
-            }.onFailure { err ->
-                Log.w(TAG, "runShortsRepurposeGenerator failed", err)
+            try {
+                val res = aiService.generateShortsRepurposePlan(
+                    videoTitle = title.ifBlank { "Creator Video" },
+                    videoDescriptionOrTranscript = transcriptOrSummary.ifBlank { state.optimizeDescInput }
+                )
+                res.onSuccess { md ->
+                    _uiState.update { it.copy(shortsPlanMarkdown = md, isOptimizing = false) }
+                }.onFailure { err ->
+                    Log.w(TAG, "runShortsRepurposeGenerator failed", err)
+                    _uiState.update {
+                        it.copy(
+                            isOptimizing = false,
+                            optimizeError = ZedCraftAiService.extractFriendlyError(err)
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "runShortsRepurposeGenerator unexpected failure", e)
                 _uiState.update {
                     it.copy(
                         isOptimizing = false,
-                        optimizeError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                        optimizeError = ZedCraftAiService.extractFriendlyError(e)
                     )
+                }
+            } finally {
+                if (_uiState.value.isOptimizing) {
+                    _uiState.update { it.copy(isOptimizing = false) }
                 }
             }
         }
@@ -1357,29 +1462,45 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
         _uiState.update { it.copy(isGeneratingTrendIdeas = true, researchError = null) }
         viewModelScope.launch {
-            val prompt = """
-                Generate 10 high-demand, low-saturation YouTube video ideas for the niche: "$query".
-                For each idea include:
-                - **Clickable Title** (<60 chars)
-                - **Thumbnail Visual Concept** (3-word text overlay + visual focal point)
-                - **Target Search Keyword & Buyer/Viewer Intent**
-                - **Opening 15-Second Hook**
-                - **Format Recommendation** (Long-form vs Shorts remix angle)
-            """.trimIndent()
+            try {
+                val prompt = """
+                    Generate 10 high-demand, low-saturation YouTube video ideas for the niche: "$query".
+                    For each idea include:
+                    - **Clickable Title** (<60 chars)
+                    - **Thumbnail Visual Concept** (3-word text overlay + visual focal point)
+                    - **Target Search Keyword & Buyer/Viewer Intent**
+                    - **Opening 15-Second Hook**
+                    - **Format Recommendation** (Long-form vs Shorts remix angle)
+                """.trimIndent()
 
-            val res = aiService.askZdAssistant(
-                userPrompt = prompt,
-                channelContext = buildActiveChannelContextString(),
-                chatHistory = emptyList()
-            )
-            res.onSuccess { md ->
-                _uiState.update { it.copy(trendIdeasMarkdown = md, isGeneratingTrendIdeas = false) }
-            }.onFailure {
+                val res = aiService.askZdAssistant(
+                    userPrompt = prompt,
+                    channelContext = buildActiveChannelContextString(),
+                    chatHistory = emptyList()
+                )
+                res.onSuccess { md ->
+                    _uiState.update { it.copy(trendIdeasMarkdown = md, isGeneratingTrendIdeas = false) }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            isGeneratingTrendIdeas = false,
+                            researchError = ZedCraftAiService.extractFriendlyError(err)
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "generateViralTopicIdeasForNiche unexpected failure", e)
                 _uiState.update {
                     it.copy(
                         isGeneratingTrendIdeas = false,
-                        researchError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                        researchError = ZedCraftAiService.extractFriendlyError(e)
                     )
+                }
+            } finally {
+                if (_uiState.value.isGeneratingTrendIdeas) {
+                    _uiState.update { it.copy(isGeneratingTrendIdeas = false) }
                 }
             }
         }
@@ -1439,45 +1560,61 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         }
         _uiState.update { it.copy(isAnalyzingComments = true, researchError = null) }
         viewModelScope.launch {
-            val token = _uiState.value.oauthAccessToken
-            val videoDetail = youTubeApi.fetchVideoById(videoId, token).getOrNull()
-            val commentsRes = youTubeApi.fetchVideoComments(videoId, maxResults = 45, oauthAccessToken = token)
-            commentsRes.onSuccess { comments ->
-                _uiState.update { it.copy(commentList = comments) }
-                if (comments.isNotEmpty()) {
-                    val aiRes = aiService.analyzeCommentsAndAudienceSentiment(
-                        videoTitle = videoDetail?.title ?: "Video ($videoId)",
-                        comments = comments
-                    )
-                    aiRes.onSuccess { md ->
-                        _uiState.update {
-                            it.copy(
-                                commentSentimentMarkdown = md,
-                                isAnalyzingComments = false
-                            )
+            try {
+                val token = _uiState.value.oauthAccessToken
+                val videoDetail = youTubeApi.fetchVideoById(videoId, token).getOrNull()
+                val commentsRes = youTubeApi.fetchVideoComments(videoId, maxResults = 45, oauthAccessToken = token)
+                commentsRes.onSuccess { comments ->
+                    _uiState.update { it.copy(commentList = comments) }
+                    if (comments.isNotEmpty()) {
+                        val aiRes = aiService.analyzeCommentsAndAudienceSentiment(
+                            videoTitle = videoDetail?.title ?: "Video ($videoId)",
+                            comments = comments
+                        )
+                        aiRes.onSuccess { md ->
+                            _uiState.update {
+                                it.copy(
+                                    commentSentimentMarkdown = md,
+                                    isAnalyzingComments = false
+                                )
+                            }
+                        }.onFailure { err ->
+                            _uiState.update {
+                                it.copy(
+                                    isAnalyzingComments = false,
+                                    researchError = ZedCraftAiService.extractFriendlyError(err)
+                                )
+                            }
                         }
-                    }.onFailure {
+                    } else {
                         _uiState.update {
                             it.copy(
                                 isAnalyzingComments = false,
-                                researchError = ZedCraftAiService.FRIENDLY_ZD_ERROR
+                                commentSentimentMarkdown = "No public comments found on this video."
                             )
                         }
                     }
-                } else {
+                }.onFailure { err ->
                     _uiState.update {
                         it.copy(
                             isAnalyzingComments = false,
-                            commentSentimentMarkdown = "No public comments found on this video."
+                            researchError = err.localizedMessage ?: "Could not fetch comments."
                         )
                     }
                 }
-            }.onFailure { err ->
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "runCommentSentimentExplorer unexpected failure", e)
                 _uiState.update {
                     it.copy(
                         isAnalyzingComments = false,
-                        researchError = err.localizedMessage ?: "Could not fetch comments."
+                        researchError = ZedCraftAiService.extractFriendlyError(e)
                     )
+                }
+            } finally {
+                if (_uiState.value.isAnalyzingComments) {
+                    _uiState.update { it.copy(isAnalyzingComments = false) }
                 }
             }
         }
@@ -1488,6 +1625,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
         val trimmed = promptText.trim()
         if (trimmed.isBlank() || _uiState.value.isZdThinking) return
 
+        activeZdJob?.cancel()
         _uiState.update {
             it.copy(
                 isZdThinking = true,
@@ -1497,8 +1635,13 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
             )
         }
 
-        viewModelScope.launch {
+        activeZdJob = viewModelScope.launch {
             try {
+                // Read prior history from Room directly before inserting the new user message
+                val historyPairs = cacheDao.getRecentZdChatMessages(limit = 10)
+                    .reversed()
+                    .map { it.role to it.content }
+
                 cacheDao.insertZdChatMessage(
                     ZdChatMessageEntity(
                         role = "user",
@@ -1507,7 +1650,6 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     )
                 )
 
-                val historyPairs = zdChatHistory.value.map { it.role to it.content }
                 val lowerPrompt = trimmed.lowercase()
                 val shouldFetchSearchPatterns = lowerPrompt.contains("title") ||
                     lowerPrompt.contains("description") ||
@@ -1521,18 +1663,31 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 val enrichedContext = if (shouldFetchSearchPatterns) {
                     val topicSeed = _uiState.value.selectedTargetVideo?.title
                         ?: _uiState.value.optimizeTitleInput.ifBlank { trimmed.take(70) }
-                    val patterns = youTubeApi.fetchTopicSearchPatterns(
-                        topicOrTitleOrUrl = topicSeed,
-                        oauthAccessToken = _uiState.value.oauthAccessToken
-                    )
-                    buildString {
-                        appendLine(buildActiveChannelContextString())
-                        appendLine()
-                        appendLine("=== SMART SUGGESTIONS SEARCH DATA (${patterns.dataSourceLabel}) ===")
-                        patterns.patternSummaryBullets.forEach { appendLine("- $it") }
-                        if (patterns.tagFrequencies.isNotEmpty()) {
-                            appendLine("Top Competitor Tags: ${patterns.tagFrequencies.take(10).joinToString(", ") { "${it.tag} (${it.commonalityLabel})" }}")
+                    val patterns = withTimeoutOrNull(4500L) {
+                        try {
+                            youTubeApi.fetchTopicSearchPatterns(
+                                topicOrTitleOrUrl = topicSeed,
+                                oauthAccessToken = _uiState.value.oauthAccessToken
+                            )
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Optional search pattern enrichment failed", e)
+                            null
                         }
+                    }
+                    if (patterns != null) {
+                        buildString {
+                            appendLine(buildActiveChannelContextString())
+                            appendLine()
+                            appendLine("=== SMART SUGGESTIONS SEARCH DATA (${patterns.dataSourceLabel}) ===")
+                            patterns.patternSummaryBullets.forEach { appendLine("- $it") }
+                            if (patterns.tagFrequencies.isNotEmpty()) {
+                                appendLine("Top Competitor Tags: ${patterns.tagFrequencies.take(10).joinToString(", ") { "${it.tag} (${it.commonalityLabel})" }}")
+                            }
+                        }
+                    } else {
+                        buildActiveChannelContextString()
                     }
                 } else {
                     buildActiveChannelContextString()
@@ -1544,7 +1699,11 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     chatHistory = historyPairs,
                     onStreamingUpdate = { partial ->
                         _uiState.update { state ->
-                            state.copy(streamingZdMessage = partial)
+                            if (state.isZdThinking) {
+                                state.copy(streamingZdMessage = partial)
+                            } else {
+                                state
+                            }
                         }
                     }
                 )
@@ -1567,11 +1726,12 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     }
                 }.onFailure { err ->
                     Log.e(TAG, "ZD AI assistant failed after retry and fallback", err)
+                    val friendly = ZedCraftAiService.extractFriendlyError(err)
                     _uiState.update {
                         it.copy(
                             isZdThinking = false,
                             streamingZdMessage = null,
-                            zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                            zdError = friendly,
                             lastFailedZdPrompt = trimmed
                         )
                     }
@@ -1585,41 +1745,95 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         isZdThinking = false,
                         streamingZdMessage = null,
-                        zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                        zdError = ZedCraftAiService.extractFriendlyError(e),
                         lastFailedZdPrompt = trimmed
                     )
+                }
+            } finally {
+                activeZdJob = null
+                if (_uiState.value.isZdThinking) {
+                    _uiState.update { it.copy(isZdThinking = false, streamingZdMessage = null) }
                 }
             }
         }
     }
 
     /**
-     * Retries the last failed ZD prompt without duplicating the user bubble in the chat history.
+     * Cancels an in-flight ZD AI generation immediately and resets loading UI.
+     * Preserves substantial streamed text (>= 40 chars) in history so partial answers aren't lost.
      */
-    fun retryLastZdPrompt() {
-        val lastPrompt = _uiState.value.lastFailedZdPrompt
-            ?: zdChatHistory.value.lastOrNull { it.role == "user" }?.content
-            ?: return
-        if (_uiState.value.isZdThinking) return
-
+    fun stopZdGeneration() {
+        val partial = _uiState.value.streamingZdMessage?.trim()
+        activeZdJob?.cancel()
+        activeZdJob = null
         _uiState.update {
             it.copy(
-                isZdThinking = true,
+                isZdThinking = false,
                 streamingZdMessage = null,
                 zdError = null
             )
         }
+        if (!partial.isNullOrBlank() && partial.length >= 40) {
+            viewModelScope.launch {
+                runCatching {
+                    cacheDao.insertZdChatMessage(
+                        ZdChatMessageEntity(
+                            role = "assistant",
+                            content = "$partial\n\n*(Stopped)*",
+                            createdAtMs = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+        }
+    }
 
-        viewModelScope.launch {
+    fun dismissZdError() {
+        _uiState.update { it.copy(zdError = null) }
+    }
+
+    /**
+     * Retries the last failed ZD prompt without duplicating the user bubble in the chat history.
+     */
+    fun retryLastZdPrompt() {
+        if (_uiState.value.isZdThinking) return
+
+        activeZdJob?.cancel()
+        activeZdJob = viewModelScope.launch {
             try {
-                val historyPairs = zdChatHistory.value.dropLast(1).map { it.role to it.content }
+                val recentMessages = cacheDao.getRecentZdChatMessages(limit = 12).reversed()
+                val lastPrompt = _uiState.value.lastFailedZdPrompt
+                    ?: recentMessages.lastOrNull { it.role == "user" }?.content
+                    ?: return@launch
+
+                _uiState.update {
+                    it.copy(
+                        isZdThinking = true,
+                        streamingZdMessage = null,
+                        zdError = null
+                    )
+                }
+
+                val historyList = if (recentMessages.lastOrNull()?.role == "user" &&
+                    recentMessages.lastOrNull()?.content == lastPrompt
+                ) {
+                    recentMessages.dropLast(1)
+                } else {
+                    recentMessages
+                }
+                val historyPairs = historyList.map { it.role to it.content }
+
                 val res = aiService.askZdAssistant(
                     userPrompt = lastPrompt,
                     channelContext = buildActiveChannelContextString(),
                     chatHistory = historyPairs,
                     onStreamingUpdate = { partial ->
                         _uiState.update { state ->
-                            state.copy(streamingZdMessage = partial)
+                            if (state.isZdThinking) {
+                                state.copy(streamingZdMessage = partial)
+                            } else {
+                                state
+                            }
                         }
                     }
                 )
@@ -1646,7 +1860,7 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                         it.copy(
                             isZdThinking = false,
                             streamingZdMessage = null,
-                            zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
+                            zdError = ZedCraftAiService.extractFriendlyError(err),
                             lastFailedZdPrompt = lastPrompt
                         )
                     }
@@ -1660,15 +1874,21 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         isZdThinking = false,
                         streamingZdMessage = null,
-                        zdError = ZedCraftAiService.FRIENDLY_ZD_ERROR,
-                        lastFailedZdPrompt = lastPrompt
+                        zdError = ZedCraftAiService.extractFriendlyError(e)
                     )
+                }
+            } finally {
+                activeZdJob = null
+                if (_uiState.value.isZdThinking) {
+                    _uiState.update { it.copy(isZdThinking = false, streamingZdMessage = null) }
                 }
             }
         }
     }
 
     fun clearZdChat() {
+        activeZdJob?.cancel()
+        activeZdJob = null
         viewModelScope.launch {
             cacheDao.clearZdChatMessages()
             _uiState.update {
@@ -1945,10 +2165,8 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
     }
 
     private suspend fun seedWelcomeZdMessageIfEmpty() {
-        val current = cacheDao.observeZdChatMessages()
-        // Always ensure there's a helpful initial message if the table is empty
-        val list = zdChatHistory.value
-        if (list.isEmpty()) {
+        // Check Room directly because zdChatHistory uses SharingStarted.WhileSubscribed
+        if (cacheDao.getZdChatMessageCount() == 0) {
             cacheDao.insertZdChatMessage(
                 ZdChatMessageEntity(
                     role = "assistant",

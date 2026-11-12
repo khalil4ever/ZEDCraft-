@@ -109,6 +109,8 @@ import com.example.data.local.VideoRevisionBackupEntity
 import com.example.data.remote.YouTubeApiClient
 import com.example.data.remote.YouTubeWriteOutcome
 import com.example.data.remote.YtVideoDetail
+import com.example.ui.components.ZdMarkdownMessage
+import com.example.ui.components.stripMarkdownToCleanText
 import com.example.ui.theme.ZedAmberWarning
 import com.example.ui.theme.ZedCardBorder
 import com.example.ui.theme.ZedCoralError
@@ -2967,17 +2969,18 @@ private fun ScriptAndHookSection(
                         Row {
                             IconButton(
                                 onClick = {
-                                    copyToClipboard(context, "Script Outline", uiState.scriptOutputMarkdown)
+                                    copyToClipboard(context, "Script Outline", stripMarkdownToCleanText(uiState.scriptOutputMarkdown))
                                 }
                             ) {
                                 Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Copy", tint = ZedCyanPrimary)
                             }
                             IconButton(
                                 onClick = {
+                                    val cleanScript = stripMarkdownToCleanText(uiState.scriptOutputMarkdown)
                                     viewModel.saveIdeaToVault(
                                         category = "Script & Hook",
                                         title = uiState.optimizeTopicInput.ifBlank { "Video Script" },
-                                        content = uiState.scriptOutputMarkdown
+                                        content = cleanScript
                                     )
                                     Toast.makeText(context, "Saved script to Vault!", Toast.LENGTH_SHORT).show()
                                 }
@@ -2987,10 +2990,9 @@ private fun ScriptAndHookSection(
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = uiState.scriptOutputMarkdown,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
+                    ZdMarkdownMessage(
+                        markdown = uiState.scriptOutputMarkdown,
+                        isStreaming = false
                     )
                 }
             }
@@ -3105,16 +3107,15 @@ private fun ShortsRepurposeSection(
                             color = ZedPurpleAccent
                         )
                         IconButton(
-                            onClick = { copyToClipboard(context, "Shorts Plan", uiState.shortsPlanMarkdown) }
+                            onClick = { copyToClipboard(context, "Shorts Plan", stripMarkdownToCleanText(uiState.shortsPlanMarkdown)) }
                         ) {
                             Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Copy", tint = ZedCyanPrimary)
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = uiState.shortsPlanMarkdown,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
+                    ZdMarkdownMessage(
+                        markdown = uiState.shortsPlanMarkdown,
+                        isStreaming = false
                     )
                 }
             }
