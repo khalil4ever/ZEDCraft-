@@ -9,7 +9,7 @@
 ZEDCraft uses **Firebase AI Logic** (`Firebase.ai`) with **Firebase App Check** so your Gemini calls authenticate securely without exposing a client-side Gemini API key in the APK:
 
 - **`ZD_MAIN_MODEL = "gemini-4-hydrogen"`** (with `HYDROGEN_DEFAULT_THINKING_LEVEL = "LOW"` / `"MEDIUM"` / `"HIGH"` and `temperature = 1.0`): Powers **ZD** (your AI growth assistant), deep channel strategy, content planning, video idea generation, and high-speed metadata & vision tools.
-- **`THUMBNAIL_IMAGE_MODEL = "gemini-3-pro-image"`** (Nano Banana Pro): Powers 16:9 YouTube Thumbnail Generation with the **Thumbnail Designer** skill (`ThumbnailDesignerSkill.kt`).
+- **`FAST_MODEL = ZD_MAIN_MODEL`**: References `ZD_MAIN_MODEL` so all text and vision tools use a single model constant.
 - **Automatic Fallback**: Configured in `app/src/main/java/com/example/ai/ZedCraftAiConfig.kt`. If `gemini-4-hydrogen` experiences a transient endpoint error, ZEDCraft automatically falls back to `gemini-3.5-flash-lite` / `gemini-flash-lite-latest`.
 
 ---

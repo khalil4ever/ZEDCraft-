@@ -24,15 +24,6 @@ object ZedCraftAiConfig {
     const val DEFAULT_TEMPERATURE = 1.0
     const val DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
-    // Nano Banana Pro (Google's Gemini 3 Pro Image model) for 16:9 YouTube Thumbnail Generation
-    const val THUMBNAIL_IMAGE_MODEL = "gemini-3-pro-image"
-
-    val THUMBNAIL_IMAGE_FALLBACK_CHAIN = listOf(
-        THUMBNAIL_IMAGE_MODEL,
-        "gemini-3-pro-image-preview",
-        "gemini-nano-banana-2.1"
-    )
-
     // Verified direct Google AI Studio model chain with ZD_MAIN_MODEL first
     val DIRECT_MODEL_CHAIN = listOf(
         ZD_MAIN_MODEL,

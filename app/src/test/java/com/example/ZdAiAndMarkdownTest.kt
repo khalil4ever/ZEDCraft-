@@ -1,6 +1,5 @@
 package com.example
 
-import com.example.ai.ThumbnailDesignerSkill
 import com.example.ai.ZdAiException
 import com.example.ai.ZedCraftAiConfig
 import com.example.ai.ZedCraftAiService
@@ -24,35 +23,12 @@ import org.robolectric.annotation.Config
 class ZdAiAndMarkdownTest {
 
     @Test
-    fun `ai config routes text to gemini-4-hydrogen and thumbnails to gemini-3-pro-image`() {
+    fun `ai config routes text to gemini-4-hydrogen`() {
         assertEquals("gemini-4-hydrogen", ZedCraftAiConfig.ZD_MAIN_MODEL)
         assertEquals(ZedCraftAiConfig.ZD_MAIN_MODEL, ZedCraftAiConfig.FAST_MODEL)
         assertEquals("gemini-4-hydrogen", ZedCraftAiConfig.DIRECT_MODEL_CHAIN.first())
-        assertEquals("gemini-3-pro-image", ZedCraftAiConfig.THUMBNAIL_IMAGE_MODEL)
-        assertTrue(ZedCraftAiConfig.THUMBNAIL_IMAGE_FALLBACK_CHAIN.contains("gemini-3-pro-image"))
         assertEquals("LOW", ZedCraftAiConfig.HYDROGEN_DEFAULT_THINKING_LEVEL)
         assertEquals(1.0, ZedCraftAiConfig.DEFAULT_TEMPERATURE, 0.001)
-    }
-
-    @Test
-    fun `thumbnail designer skill preserves exact system instruction and builds 3 distinct 16x9 prompts`() {
-        val sys = ThumbnailDesignerSkill.SYSTEM_INSTRUCTION
-        assertTrue(sys.contains("You are a professional YouTube thumbnail graphic designer"))
-        assertTrue(sys.contains("Maximum 3 to 5 words of text"))
-        assertTrue(sys.contains("bottom-right corner clear, where the YouTube timestamp appears"))
-        assertEquals(3, ThumbnailDesignerSkill.THREE_THUMBNAIL_VARIATIONS.size)
-
-        val prompt = ThumbnailDesignerSkill.buildThumbnailGenerationPrompt(
-            videoTitleOrTopic = "I Built an AI Phone in 24 Hours",
-            nicheOrStyle = "Tech & Gadgets",
-            overlayText = "IT ACTUALLY WORKS!",
-            hasReferenceImage = true,
-            variation = ThumbnailDesignerSkill.THREE_THUMBNAIL_VARIATIONS[0]
-        )
-        assertTrue(prompt.contains("16:9"))
-        assertTrue(prompt.contains("I Built an AI Phone in 24 Hours"))
-        assertTrue(prompt.contains("IT ACTUALLY WORKS!"))
-        assertTrue(prompt.contains("Reference Image Provided"))
     }
 
     @Test

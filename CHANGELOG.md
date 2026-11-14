@@ -1,11 +1,12 @@
 # ZEDCraft Changelog
 
+## [1.4.1] - 2026-11-13
+### Changed
+- **Removed Thumbnail Generator Only**: Removed the AI Thumbnail Generator card while keeping the **Gemini 4 Hydrogen (`gemini-4-hydrogen`)** text/reasoning model upgrade, **Thumbnail Vision Scorer**, **Live YouTube Uploader**, and all other features intact.
+
 ## [1.4.0] - 2026-11-13
 ### Added & Upgraded
 - **Gemini 4 Hydrogen Text Model Upgrade (`gemini-4-hydrogen`)**: Upgraded the app's primary AI text and reasoning model to **Gemini 4 Hydrogen** (`ZD_MAIN_MODEL = "gemini-4-hydrogen"`), configured in one central constant in `ZedCraftAiConfig.kt` with Gemini 4 Hydrogen `thinkingConfig` (`thinkingLevel = "LOW"` / `"MEDIUM"` / `"HIGH"`), official `temperature = 1.0`, `maxOutputTokens = 4096`, and non-thought part filtering across JSON and SSE streaming responses.
-- **AI YouTube Thumbnail Generation with Nano Banana Pro (`gemini-3-pro-image`)**: Added **Generate Thumbnail** in the **Optimize → Thumbnail** tab powered by **Nano Banana Pro** (`THUMBNAIL_IMAGE_MODEL = "gemini-3-pro-image"`). Enter a video title or topic, optional style/niche preference, optional 3–5 word main hook text, and an optional reference image (face or brand asset) to generate **3 distinct 16:9 thumbnail options** per request.
-- **1-Tap Vision Scoring & 16:9 PNG Download**: Every generated 16:9 thumbnail option connects directly to ZEDCraft's **Thumbnail Vision Scorer** (1 tap to score readability, contrast, emotion, and title synergy), **Set as B** for A/B comparison, and **Save 16:9** to download directly to `Pictures/ZEDCraft`.
-- **Reusable "Thumbnail Designer" Skill**: Added the standalone **Thumbnail Designer** skill (`app/src/main/java/com/example/ai/ThumbnailDesignerSkill.kt` and `app/src/main/assets/thumbnail_designer_skill.md`) enforcing professional high-CTR YouTube thumbnail rules (single clear focal point, 3–5 bold high-contrast words, complementary palette, rim light separation, niche styling, and clear bottom-right timestamp safety zone).
 
 ## [1.3.9] - 2026-11-12
 ### Fixed & Improved

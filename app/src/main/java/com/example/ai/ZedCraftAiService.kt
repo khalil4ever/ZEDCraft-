@@ -114,10 +114,6 @@ class ZedCraftAiService(
 
     fun hasValidDirectApiKey(): Boolean = getDirectGeminiApiKey() != null
 
-    private val thumbnailGenerator by lazy {
-        ZedCraftThumbnailGenerator(apiKeyProvider = apiKeyProvider, aiService = this)
-    }
-
     internal fun getDirectGeminiApiKey(): String? {
         val key = runCatching { apiKeyProvider()?.trim() }.getOrNull()
         return if (!key.isNullOrBlank() && !key.startsWith("YOUR_") && key != "null") key else null
@@ -1853,34 +1849,6 @@ class ZedCraftAiService(
             chatHistory = chatHistory
         )
         raw.text
-    }
-
-    /**
-     * Generates 3 distinct 16:9 YouTube thumbnail options using Nano Banana Pro
-     * (`ZedCraftAiConfig.THUMBNAIL_IMAGE_MODEL` = `"gemini-3-pro-image"`) and the
-     * reusable `ThumbnailDesignerSkill`.
-     */
-    suspend fun generateYouTubeThumbnails(
-        videoTitleOrTopic: String,
-        stylePreference: String = "",
-        overlayText: String = "",
-        referenceBitmap: Bitmap? = null
-    ): Result<ThumbnailBatchGenerationResult> = runAiCatching {
-        thumbnailGenerator.generateThreeThumbnails(
-            videoTitleOrTopic = videoTitleOrTopic,
-            stylePreference = stylePreference,
-            overlayText = overlayText,
-            referenceBitmap = referenceBitmap
-        ).getOrThrow()
-    }
-
-    internal suspend fun executeStructuredPromptForThumbnailSpecs(prompt: String): String {
-        return callDirectGoogleAiStudioApi(
-            systemInstructionText = ThumbnailDesignerSkill.SYSTEM_INSTRUCTION,
-            promptText = prompt,
-            bitmap = null,
-            responseMimeType = "application/json"
-        )
     }
 
     private fun jsonArrayToList(arr: JSONArray?): List<String> {

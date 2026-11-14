@@ -18,8 +18,8 @@ android {
     minSdk = 24
     targetSdk = 36
     // Easy-to-update release version numbers (bump both for each new GitHub APK release):
-    versionCode = 14
-    versionName = "1.4.0"
+    versionCode = 15
+    versionName = "1.4.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
