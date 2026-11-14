@@ -114,9 +114,27 @@ class ZedCraftAiService(
 
     fun hasValidDirectApiKey(): Boolean = getDirectGeminiApiKey() != null
 
+    private val thumbnailGenerator by lazy {
+        ZedCraftThumbnailGenerator(apiKeyProvider = apiKeyProvider, aiService = this)
+    }
+
     internal fun getDirectGeminiApiKey(): String? {
         val key = runCatching { apiKeyProvider()?.trim() }.getOrNull()
         return if (!key.isNullOrBlank() && !key.startsWith("YOUR_") && key != "null") key else null
+    }
+
+    private fun extractNonThoughtTextFromParts(parts: JSONArray?): String {
+        if (parts == null) return ""
+        val sb = StringBuilder()
+        for (i in 0 until parts.length()) {
+            val part = parts.optJSONObject(i) ?: continue
+            if (part.optBoolean("thought", false)) continue
+            val text = part.optString("text", "")
+            if (text.isNotEmpty()) {
+                sb.append(text)
+            }
+        }
+        return sb.toString()
     }
 
     private fun mapHttpFailure(code: Int, body: String): ZdAiException {
@@ -230,9 +248,18 @@ class ZedCraftAiService(
                             )
                         )
                     }
-                    val genConfig = JSONObject()
-                    if (responseMimeType == "application/json") {
-                        genConfig.put("responseMimeType", "application/json")
+                    val genConfig = JSONObject().apply {
+                        put("temperature", ZedCraftAiConfig.DEFAULT_TEMPERATURE)
+                        put("maxOutputTokens", ZedCraftAiConfig.DEFAULT_MAX_OUTPUT_TOKENS)
+                        if (responseMimeType == "application/json") {
+                            put("responseMimeType", "application/json")
+                        }
+                        if (model == ZedCraftAiConfig.ZD_MAIN_MODEL) {
+                            put(
+                                "thinkingConfig",
+                                JSONObject().put("thinkingLevel", ZedCraftAiConfig.HYDROGEN_DEFAULT_THINKING_LEVEL)
+                            )
+                        }
                     }
                     put("generationConfig", genConfig)
                 }
@@ -248,7 +275,7 @@ class ZedCraftAiService(
                         val firstCandidate = candidates?.optJSONObject(0)
                         val contentObj = firstCandidate?.optJSONObject("content")
                         val parts = contentObj?.optJSONArray("parts")
-                        val candidateText = parts?.optJSONObject(0)?.optString("text").orEmpty().trim()
+                        val candidateText = extractNonThoughtTextFromParts(parts).trim()
                         if (candidateText.isNotBlank()) {
                             Log.i(TAG, "Direct Google AI Studio API succeeded using $model")
                             return@withContext candidateText
@@ -333,6 +360,8 @@ class ZedCraftAiService(
         }
 
         val mainConfig: GenerationConfig = generationConfig {
+            temperature = ZedCraftAiConfig.DEFAULT_TEMPERATURE.toFloat()
+            maxOutputTokens = ZedCraftAiConfig.DEFAULT_MAX_OUTPUT_TOKENS
             if (responseSchema != null) {
                 responseMimeType = "application/json"
                 this.responseSchema = responseSchema
@@ -412,6 +441,8 @@ class ZedCraftAiService(
         }
 
         val config = generationConfig {
+            temperature = ZedCraftAiConfig.DEFAULT_TEMPERATURE.toFloat()
+            maxOutputTokens = ZedCraftAiConfig.DEFAULT_MAX_OUTPUT_TOKENS
             responseMimeType = "application/json"
             this.responseSchema = responseSchema
         }
@@ -1684,6 +1715,17 @@ class ZedCraftAiService(
                             )
                         )
                     }
+                    val genConfig = JSONObject().apply {
+                        put("temperature", ZedCraftAiConfig.DEFAULT_TEMPERATURE)
+                        put("maxOutputTokens", ZedCraftAiConfig.DEFAULT_MAX_OUTPUT_TOKENS)
+                        if (model == ZedCraftAiConfig.ZD_MAIN_MODEL) {
+                            put(
+                                "thinkingConfig",
+                                JSONObject().put("thinkingLevel", ZedCraftAiConfig.HYDROGEN_DEFAULT_THINKING_LEVEL)
+                            )
+                        }
+                    }
+                    put("generationConfig", genConfig)
                 }
 
                 val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -1707,13 +1749,11 @@ class ZedCraftAiService(
                             if (jsonStr.isNotEmpty() && jsonStr != "[DONE]") {
                                 runCatching {
                                     val root = JSONObject(jsonStr)
-                                    val chunkText = root.optJSONArray("candidates")
+                                    val parts = root.optJSONArray("candidates")
                                         ?.optJSONObject(0)
                                         ?.optJSONObject("content")
                                         ?.optJSONArray("parts")
-                                        ?.optJSONObject(0)
-                                        ?.optString("text")
-                                        .orEmpty()
+                                    val chunkText = extractNonThoughtTextFromParts(parts)
                                     if (chunkText.isNotEmpty()) {
                                         accumulated.append(chunkText)
                                         onStreamingUpdate(accumulated.toString())
@@ -1813,6 +1853,34 @@ class ZedCraftAiService(
             chatHistory = chatHistory
         )
         raw.text
+    }
+
+    /**
+     * Generates 3 distinct 16:9 YouTube thumbnail options using Nano Banana Pro
+     * (`ZedCraftAiConfig.THUMBNAIL_IMAGE_MODEL` = `"gemini-3-pro-image"`) and the
+     * reusable `ThumbnailDesignerSkill`.
+     */
+    suspend fun generateYouTubeThumbnails(
+        videoTitleOrTopic: String,
+        stylePreference: String = "",
+        overlayText: String = "",
+        referenceBitmap: Bitmap? = null
+    ): Result<ThumbnailBatchGenerationResult> = runAiCatching {
+        thumbnailGenerator.generateThreeThumbnails(
+            videoTitleOrTopic = videoTitleOrTopic,
+            stylePreference = stylePreference,
+            overlayText = overlayText,
+            referenceBitmap = referenceBitmap
+        ).getOrThrow()
+    }
+
+    internal suspend fun executeStructuredPromptForThumbnailSpecs(prompt: String): String {
+        return callDirectGoogleAiStudioApi(
+            systemInstructionText = ThumbnailDesignerSkill.SYSTEM_INSTRUCTION,
+            promptText = prompt,
+            bitmap = null,
+            responseMimeType = "application/json"
+        )
     }
 
     private fun jsonArrayToList(arr: JSONArray?): List<String> {

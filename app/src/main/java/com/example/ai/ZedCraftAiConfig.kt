@@ -5,21 +5,39 @@ package com.example.ai
  * Put all model constants in ONE config file so they are easy to change.
  */
 object ZedCraftAiConfig {
-    // Primary fast reasoning model (Gemini 3.5 Flash-Lite - responds in ~0.6s)
-    const val ZD_MAIN_MODEL = "gemini-3.5-flash-lite"
+    // Primary Gemini 4 Flash-class reasoning model (Gemini 4 Hydrogen, verified ID in v1beta/models)
+    const val ZD_MAIN_MODEL = "gemini-4-hydrogen"
 
-    // Fast workhorse model (Gemini 3.5 Flash-Lite) for quick tools (title scoring, tag generation, hashtag generation, description rewrites, thumbnail scoring)
-    const val FAST_MODEL = "gemini-3.5-flash-lite"
+    // Fast workhorse model — references ZD_MAIN_MODEL so the model ID lives in a single constant
+    const val FAST_MODEL = ZD_MAIN_MODEL
 
-    // Secondary ultra-fast fallback model (Gemini Flash-Lite Latest)
+    // Secondary ultra-fast fallback model if primary endpoint is transiently unavailable
     const val LITE_MODEL = "gemini-flash-lite-latest"
 
-    // Verified direct Google AI Studio failover chain (ordered by speed & reliability)
+    // Gemini 4 Hydrogen reasoning / thinking levels (verified supported values: "LOW", "MEDIUM", "HIGH")
+    const val HYDROGEN_THINKING_LEVEL_LOW = "LOW"
+    const val HYDROGEN_THINKING_LEVEL_MEDIUM = "MEDIUM"
+    const val HYDROGEN_THINKING_LEVEL_HIGH = "HIGH"
+    const val HYDROGEN_DEFAULT_THINKING_LEVEL = HYDROGEN_THINKING_LEVEL_LOW
+
+    // Generation settings tuned for Gemini 4 Hydrogen (official default temperature = 1.0, maxOutputTokens = 65536)
+    const val DEFAULT_TEMPERATURE = 1.0
+    const val DEFAULT_MAX_OUTPUT_TOKENS = 4096
+
+    // Nano Banana Pro (Google's Gemini 3 Pro Image model) for 16:9 YouTube Thumbnail Generation
+    const val THUMBNAIL_IMAGE_MODEL = "gemini-3-pro-image"
+
+    val THUMBNAIL_IMAGE_FALLBACK_CHAIN = listOf(
+        THUMBNAIL_IMAGE_MODEL,
+        "gemini-3-pro-image-preview",
+        "gemini-nano-banana-2.1"
+    )
+
+    // Verified direct Google AI Studio model chain with ZD_MAIN_MODEL first
     val DIRECT_MODEL_CHAIN = listOf(
+        ZD_MAIN_MODEL,
         "gemini-3.5-flash-lite",
-        "gemini-flash-lite-latest",
-        "gemini-3.5-flash",
-        "gemini-3.1-flash-lite"
+        LITE_MODEL
     )
 
     const val ZD_GREETING = "ZD, your YouTube growth partner"

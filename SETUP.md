@@ -8,9 +8,9 @@
 
 ZEDCraft uses **Firebase AI Logic** (`Firebase.ai`) with **Firebase App Check** so your Gemini calls authenticate securely without exposing a client-side Gemini API key in the APK:
 
-- **`ZD_MAIN_MODEL = "gemini-4-argon"`** (with `ThinkingLevel.HIGH`): Powers **ZD** (your AI growth assistant), deep channel strategy, content planning, and video idea generation.
-- **`FAST_MODEL = "gemini-3.8-flash"`**: Powers high-speed tools including **Multimodal Vision Thumbnail Scoring**, **A/B Thumbnail Comparison**, **Title Optimizer**, **Description & Chapters Optimizer**, and **Tags & Hashtags Generator**.
-- **Automatic Fallback**: Configured in `app/src/main/java/com/example/ai/ZedCraftAiConfig.kt`. If `gemini-4-argon` returns a model-not-found or billing tier error, ZEDCraft automatically falls back to `gemini-3.8-flash` and shows a transparent notice in the UI.
+- **`ZD_MAIN_MODEL = "gemini-4-hydrogen"`** (with `HYDROGEN_DEFAULT_THINKING_LEVEL = "LOW"` / `"MEDIUM"` / `"HIGH"` and `temperature = 1.0`): Powers **ZD** (your AI growth assistant), deep channel strategy, content planning, video idea generation, and high-speed metadata & vision tools.
+- **`THUMBNAIL_IMAGE_MODEL = "gemini-3-pro-image"`** (Nano Banana Pro): Powers 16:9 YouTube Thumbnail Generation with the **Thumbnail Designer** skill (`ThumbnailDesignerSkill.kt`).
+- **Automatic Fallback**: Configured in `app/src/main/java/com/example/ai/ZedCraftAiConfig.kt`. If `gemini-4-hydrogen` experiences a transient endpoint error, ZEDCraft automatically falls back to `gemini-3.5-flash-lite` / `gemini-flash-lite-latest`.
 
 ---
 

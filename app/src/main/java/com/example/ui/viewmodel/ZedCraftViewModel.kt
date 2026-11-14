@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
+import com.example.ai.GeneratedThumbnailOption
 import com.example.ai.SmartTagItem
 import com.example.ai.ThumbnailVisionResponse
 import com.example.ai.TitleOptimizerResponse
@@ -132,6 +133,13 @@ data class ZedCraftUiState(
     val selectedThumbnailBitmap: Bitmap? = null,
     val secondThumbnailBitmap: Bitmap? = null,
     val thumbnailVisionResult: ThumbnailVisionResponse? = null,
+    val thumbnailGenStyleInput: String = "",
+    val thumbnailGenOverlayTextInput: String = "",
+    val thumbnailGenReferenceBitmap: Bitmap? = null,
+    val generatedThumbnailOptions: List<GeneratedThumbnailOption> = emptyList(),
+    val isGeneratingThumbnails: Boolean = false,
+    val thumbnailGenError: String? = null,
+    val thumbnailGenStatusNote: String? = null,
     val scriptOutputMarkdown: String? = null,
     val shortsPlanMarkdown: String? = null,
     val isOptimizing: Boolean = false,
@@ -1279,6 +1287,131 @@ class ZedCraftViewModel(application: Application) : AndroidViewModel(application
                 secondThumbnailBitmap = secondary,
                 optimizeError = null
             )
+        }
+    }
+
+    fun updateThumbnailGeneratorInputs(
+        titleOrTopic: String = _uiState.value.optimizeTitleInput,
+        style: String = _uiState.value.thumbnailGenStyleInput,
+        overlayText: String = _uiState.value.thumbnailGenOverlayTextInput
+    ) {
+        _uiState.update {
+            it.copy(
+                optimizeTitleInput = titleOrTopic,
+                optimizeTopicInput = if (it.optimizeTopicInput.isBlank()) titleOrTopic else it.optimizeTopicInput,
+                thumbnailGenStyleInput = style,
+                thumbnailGenOverlayTextInput = overlayText,
+                thumbnailGenError = null
+            )
+        }
+    }
+
+    fun setThumbnailGeneratorReferenceImage(bitmap: Bitmap?) {
+        _uiState.update {
+            it.copy(
+                thumbnailGenReferenceBitmap = bitmap,
+                thumbnailGenError = null
+            )
+        }
+    }
+
+    /**
+     * Generates 3 distinct 16:9 YouTube thumbnail options using Nano Banana Pro
+     * (`gemini-3-pro-image`) and the `ThumbnailDesignerSkill`.
+     */
+    fun generateAiThumbnails() {
+        val state = _uiState.value
+        val titleOrTopic = state.optimizeTitleInput.ifBlank {
+            state.selectedTargetVideo?.title ?: state.optimizeTopicInput
+        }.trim()
+
+        if (titleOrTopic.isBlank()) {
+            _uiState.update {
+                it.copy(thumbnailGenError = "Please enter a video title or topic first.")
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                isGeneratingThumbnails = true,
+                thumbnailGenError = null,
+                thumbnailGenStatusNote = null,
+                optimizeTitleInput = titleOrTopic
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val res = aiService.generateYouTubeThumbnails(
+                    videoTitleOrTopic = titleOrTopic,
+                    stylePreference = state.thumbnailGenStyleInput,
+                    overlayText = state.thumbnailGenOverlayTextInput,
+                    referenceBitmap = state.thumbnailGenReferenceBitmap
+                )
+                res.onSuccess { batch ->
+                    val firstBmp = batch.options.firstOrNull()?.bitmap
+                    _uiState.update {
+                        it.copy(
+                            generatedThumbnailOptions = batch.options,
+                            selectedThumbnailBitmap = firstBmp ?: it.selectedThumbnailBitmap,
+                            isGeneratingThumbnails = false,
+                            thumbnailGenError = null,
+                            thumbnailGenStatusNote = batch.statusNote
+                        )
+                    }
+                }.onFailure { err ->
+                    Log.w(TAG, "generateAiThumbnails failed", err)
+                    _uiState.update {
+                        it.copy(
+                            isGeneratingThumbnails = false,
+                            thumbnailGenError = ZedCraftAiService.extractFriendlyError(err)
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "generateAiThumbnails unexpected failure", e)
+                _uiState.update {
+                    it.copy(
+                        isGeneratingThumbnails = false,
+                        thumbnailGenError = ZedCraftAiService.extractFriendlyError(e)
+                    )
+                }
+            } finally {
+                if (_uiState.value.isGeneratingThumbnails) {
+                    _uiState.update { it.copy(isGeneratingThumbnails = false) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Connects any generated 16:9 thumbnail directly to the existing Thumbnail Vision Scorer
+     * so it is loaded into the primary slot and scored immediately.
+     */
+    fun scoreGeneratedThumbnail(option: GeneratedThumbnailOption) {
+        _uiState.update {
+            it.copy(
+                selectedThumbnailBitmap = option.bitmap,
+                optimizeError = null
+            )
+        }
+        runThumbnailVisionCritique()
+    }
+
+    /**
+     * Loads a generated 16:9 thumbnail into either the Primary (A) or Comparison (B) slot
+     * for A/B comparison or live YouTube upload.
+     */
+    fun useGeneratedThumbnailInSlot(option: GeneratedThumbnailOption, asComparisonB: Boolean = false) {
+        _uiState.update {
+            if (asComparisonB) {
+                it.copy(secondThumbnailBitmap = option.bitmap, optimizeError = null)
+            } else {
+                it.copy(selectedThumbnailBitmap = option.bitmap, optimizeError = null)
+            }
         }
     }
 

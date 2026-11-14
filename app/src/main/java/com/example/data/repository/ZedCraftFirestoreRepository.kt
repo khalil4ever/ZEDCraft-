@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import android.content.Context
 import com.example.R
+import com.example.ai.ZedCraftAiConfig
 import com.example.data.model.CompetitorChannel
 import com.example.data.model.ConnectedChannel
 import com.example.data.model.SavedWorkItem
@@ -419,7 +420,7 @@ class ZedCraftFirestoreRepository(
             "role" to if (role == "model") "model" else "user",
             "content" to content.trim().ifBlank { "..." }.take(30000),
             "skillId" to skillId.ifBlank { "general" }.take(100),
-            "modelUsed" to modelUsed.ifBlank { "gemini-4-argon" }.take(100),
+            "modelUsed" to modelUsed.ifBlank { ZedCraftAiConfig.ZD_MAIN_MODEL }.take(100),
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
